@@ -27,6 +27,9 @@ export function deleteAccountData(store: Store, acc: Account) {
   const name = acc.name;
   store.userStates.delete(acc.id);
   store.appliedActions.delete(acc.id);
+  store.activity.delete(acc.id);
+  store.userNotes.delete(acc.id);
+  for (const [k, g] of store.healthGrants) if (g.userId === acc.id) store.healthGrants.delete(k);
   store.revokeAllFor(acc.id);
   for (const [h, t] of store.tokens) if (t.accountId === acc.id) store.tokens.delete(h);
   store.releaseEmail(acc);

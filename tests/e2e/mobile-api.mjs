@@ -29,6 +29,8 @@ export async function serverView(email, password = DEMO_PASSWORD) {
     /** Replace this account's data with the sample history (POST /v1/me/data/sample). */
     reset: () => req('POST', '/v1/me/data/sample', { token }),
     close: () => req('POST', '/v1/auth/logout', { token }).catch(() => undefined),
+    /** Deletes this (disposable) account and everything in it (DELETE /v1/me). */
+    remove: () => req('DELETE', '/v1/me', { token, body: { password, confirm: 'DELETE' } }),
   };
 }
 

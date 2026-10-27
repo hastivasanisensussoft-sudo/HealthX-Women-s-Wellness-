@@ -13,6 +13,7 @@
     "web:build": "npm --prefix apps/web run build",
     "web:typecheck": "npm --prefix apps/web run typecheck",
     "mobile": "npm --prefix apps/mobile run start",
-    "mobile:web": "npm --prefix apps/mobile run web"
+    "mobile:web": "npm --prefix apps/mobile run web",
+    "shared:test": "cd apps/api && npx tsx --test ../../packages/shared/test/cycle.test.ts ../../packages/shared/test/wellness.test.ts ../../packages/shared/test/modules.test.ts"
   }
 }

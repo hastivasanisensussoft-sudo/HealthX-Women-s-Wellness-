@@ -1,7 +1,7 @@
 /** Privacy Center (SRS §42, §68): control hero, data visibility, consent switches, integrations, export and delete account. */
 import { COPY, formatDate, timeAgo } from '@healthx/shared';
 import { router } from 'expo-router';
-import { Activity, CalendarHeart, Database, Download, Droplets, Lock, Moon, ShieldCheck, Smile, Stethoscope, Trash2, Undo2, Utensils, Watch, type LucideIcon } from 'lucide-react-native';
+import { Activity, CalendarHeart, Database, Download, Droplets, Lock, Moon, ShieldCheck, Smile, Sparkles, Stethoscope, Trash2, Undo2, Utensils, Watch, type LucideIcon } from 'lucide-react-native';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -154,8 +154,11 @@ export default function Privacy() {
         <Row label="AI personalisation" value={state.consents.find((c) => c.id === 'ai_personalization')?.granted ? 'On' : 'Off'} />
         <Row label="Product analytics" value={state.consents.find((c) => c.id === 'analytics')?.granted ? 'On (no health values)' : 'Off'} />
         <Row label="Notifications" value={state.notificationPrefs.discreet ? 'Discreet' : 'Standard'} />
-        <Row label="Data sharing" value="Only with your consent · no employer access" last />
+        <Row label="Data sharing" value="Only with your consent · no employer access" />
+        <Row label="Account activity" value="Sign-ins and what you log (not values) · for support" />
+        <Row label="Staff access to records" value="Admins only · reason required · logged" last />
       </Card>
+      <Button label="How AI uses your data" icon={Sparkles} variant="secondary" size="sm" onPress={() => router.push('/ai-data')} style={{ marginTop: 12, alignSelf: 'flex-start' }} />
 
       <GroupHeader eyebrow="Your rights" title="Your data rights" />
       <View style={styles.right}>

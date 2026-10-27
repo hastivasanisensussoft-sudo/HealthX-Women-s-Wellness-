@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, FilePen, KeyRound, Lock, Mail, MailCheck, ShieldCheck, Smartphone, Stethoscope, UserRound, type LucideIcon } from 'lucide-react';
 import { Badge, Button, Field, Input, Notice, useToast } from '@/components/ui';
-import { useDispatch } from '@/store/AppStore';
 import { adminApi, ApiError } from '@/lib/api';
 import { cn, simulate } from '@/lib/utils';
 import { AuthShell } from '../AuthShell';
@@ -28,7 +27,6 @@ const errMessage = (e: unknown, fallback: string) => (e instanceof ApiError ? (e
 
 export default function AdminLogin() {
   const { state, dispatch, apiMode, adoptSession } = useAdmin();
-  const appDispatch = useDispatch();
   const toast = useToast();
   const nav = useNavigate();
   const loc = useLocation();
@@ -202,7 +200,6 @@ export default function AdminLogin() {
       nav('/admin', { replace: true });
       return;
     }
-    appDispatch({ type: 'SET_ROLE', role: 'admin' });
     toast.success(`Signed in as ${ROLE_META[role].label}`, `Demo session — expires after ${state.settings.sessionTimeoutMin} minutes of inactivity.`);
     nav(from, { replace: true });
   };

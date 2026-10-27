@@ -47,7 +47,7 @@ export type LifeStage = 'all' | 'reproductive' | 'fertility' | 'pregnancy' | 'pe
 export type ContentType = 'article' | 'video' | 'infographic' | 'faq' | 'podcast' | 'program';
 export type ContentStatus = 'draft' | 'review' | 'approved' | 'published' | 'archived';
 
-export type NotificationType = 'cycle' | 'habit' | 'hydration' | 'workout' | 'content' | 'report';
+export type NotificationType = 'cycle' | 'habit' | 'hydration' | 'workout' | 'sleep' | 'appointment' | 'content' | 'report';
 
 /** Keys of photos in packages/shared/assets/photos (apps map keys → files). */
 export type PhotoKey =

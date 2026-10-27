@@ -125,9 +125,10 @@ From the repo root, `npm run dev` starts the API and the web app together. The w
     - Staff names are unique.
   - Audit entries record the actor's account id and email. The log is never truncated; a per-account write budget bounds it.
 - **Privacy:**
-  - Admin views never include health data. Emails are masked; revealing one is audited.
-  - Roles that don't work with individual accounts (Content Manager, Medical Content Reviewer) get no user rows at all.
-  - Break-glass (Admins holding the break-glass permission) needs a reason, returns categories and counts only, and is audited.
+  - Admin lists, user overviews and activity never include health values. Emails are masked; revealing one is audited.
+  - Roles that don't work with individual accounts (Content Manager, Medical Content Reviewer) get no user rows, overviews or activity at all.
+  - **App activity** (`src/activity.ts`, SRS §53): each account action and each record saved from the app is logged as an event (type, time, source; never the value). App-usage events (`POST /v1/me/events`: screens, videos, coach questions) are recorded only while the person's analytics consent is on. Opening a person's activity is audited (at most once per staff member and person every 10 minutes). Activity and staff notes are erased with the account.
+  - **Health records** (A-15, requested 2026-10-27): an Admin holding the per-account break-glass permission gives a reason, gets a 30-minute grant tied to them and that person, and can then read the records (`GET …/health`). Every grant, view and early end is audited. Expired, ended or someone else's grants are refused.
   - Audit entries hold no health values, and IPs are truncated.
   - Contact-form messages are never linked to an account by the typed email.
 - **Transport:**
@@ -149,8 +150,10 @@ From the repo root, `npm run dev` starts the API and the web app together. The w
 |---|---|
 | Public | `GET /v1/health` · `GET /v1/content` · `GET /v1/content/:id` (published only) · `POST /v1/contact` |
 | Auth | `POST /v1/auth/register` · `verify-email` · `verify-email/resend` · `login` · `mfa/verify` · `refresh` · `logout` · `logout-all` · `GET me` · `GET sessions` · `DELETE sessions/:id` · `POST password/change` · `password/forgot` · `password/reset` · `magic-link` · `magic-link/verify` · `invite/accept` · `oauth/:provider` (501 — needs Apple/Google credentials) |
-| App user | `GET /v1/me/state` · `POST /v1/me/actions` · `GET /v1/me/records/:collection/:id` · `GET /v1/me/export` · `DELETE /v1/me` · `POST /v1/me/subscription/trial` · `…/cancel` · `POST /v1/me/data/sample` · `…/clear` |
-| Web Admin | `GET /v1/admin/state` (role-scoped) · `POST /v1/admin/actions` · `POST /v1/admin/users/:id/reveal-email` · `POST /v1/admin/users/:id/break-glass` · `GET /v1/admin/audit` |
+| App user | `GET /v1/me/state` · `POST /v1/me/actions` · `POST /v1/me/events` · `GET /v1/me/records/:collection/:id` · `GET /v1/me/export` · `DELETE /v1/me` · `POST /v1/me/subscription/trial` · `…/cancel` · `POST /v1/me/data/sample` · `…/clear` |
+| Web Admin | `GET /v1/admin/state` (role-scoped) · `POST /v1/admin/actions` · `POST /v1/admin/users/:id/reveal-email` · `GET /v1/admin/users/:id/overview` · `GET …/activity` · `POST …/notes` · `POST …/break-glass` · `DELETE …/break-glass` · `GET …/health` · `GET /v1/admin/activity` · `GET /v1/admin/activity/summary` · `GET /v1/admin/content/engagement` · `GET /v1/admin/audit` |
+
+Admin actions added on 2026-10-27: `SET_SCORE_WEIGHTS`, `UPSERT_PLAN_TEMPLATE`, `SET_PLAN_TEMPLATE_STATUS`, `REVIEW_PLAN_TEMPLATE` (Medical Content Reviewers; never the template's last editor) and `DELIVER_CAMPAIGN` (in-app inbox). Score weights, switched-off insight rules, staff-added symptoms and approved plan templates reach each person's app through `GET /v1/me/state` (`state.managed`); tracking defaults apply to new accounts.
 
 The shared client used by web and mobile is in `packages/shared/src/api/client.ts`.
 

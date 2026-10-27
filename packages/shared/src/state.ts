@@ -12,7 +12,7 @@ import { WORKOUTS } from './mock/workouts';
 import { generateHistory } from './mock/generate';
 import { seedCommunity } from './mock/community';
 import { uid } from './mock/random';
-import { buildDailyPlan } from './plan';
+import { buildDailyPlan, type PlanTemplate } from './plan';
 import type {
   ActivityFeedItem,
   AppNotification,
@@ -98,6 +98,16 @@ export interface AppState {
   feed: ActivityFeedItem[];
   /** Phase 4 community preview (simulated moderation). */
   community: { posts: CommunityPost[]; blocked: string[] };
+  /** Set by the API from the Web Admin configuration (absent in offline demo mode). */
+  managed?: ManagedConfig;
+}
+
+/** What the Web Admin manages for every app user; the API attaches it to each user's state. */
+export interface ManagedConfig {
+  /** Insight rules an Admin switched off (Configuration → Insight rules, SRS §37). */
+  disabledRules: string[];
+  /** Approved daily-plan templates (Daily plans, SRS §33). */
+  planLibrary: PlanTemplate[];
 }
 
 export function createInitialState(today: ISODate = todayISO(), opts: { signedIn?: boolean; onboarded?: boolean } = {}): AppState {
@@ -171,7 +181,26 @@ export function createEmptyState(today: ISODate = todayISO(), email = ''): AppSt
     bookmarks: [],
     readArticles: [],
     plan: { date: today, items: [] },
+    // Optional consents start off until the person chooses them in onboarding (explicit consent, §68).
+    consents: s.consents.map((c) => (c.required ? c : { ...c, granted: false, updatedAt: today })),
   };
+}
+
+/** Default time and on/off state for each reminder type (types added later start with these). */
+export const NOTIFICATION_DEFAULTS: NotificationPrefs['types'] = {
+  cycle: { enabled: true, time: '09:00' },
+  habit: { enabled: true, time: '20:00' },
+  hydration: { enabled: true, time: '11:00' },
+  workout: { enabled: true, time: '07:00' },
+  sleep: { enabled: false, time: '22:00' },
+  appointment: { enabled: true, time: '09:00' },
+  content: { enabled: false, time: '18:00' },
+  report: { enabled: true, time: '09:30' },
+};
+
+/** Fills in reminder types an older saved state doesn't have yet (e.g. sleep and appointments). */
+export function normalizeNotificationPrefs(p: NotificationPrefs): NotificationPrefs {
+  return { ...p, types: { ...NOTIFICATION_DEFAULTS, ...p.types } };
 }
 
 export type Action =
@@ -274,7 +303,8 @@ function upsertBy<T>(list: T[], item: T, same: (a: T) => boolean): T[] {
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'HYDRATE':
-      return action.state;
+      // States saved before a reminder type existed get its defaults.
+      return { ...action.state, notificationPrefs: normalizeNotificationPrefs(action.state.notificationPrefs) };
     case 'RESET_DEMO':
       return createInitialState(action.today ?? todayISO());
 
@@ -498,7 +528,16 @@ export function reducer(state: AppState, action: Action): AppState {
       const consents = state.consents.map((c) => (c.id === action.id && !c.required ? { ...c, granted: action.granted, updatedAt: state.today } : c));
       // Withdrawing the integrations consent takes effect immediately: every health source is disconnected (SRS §42, §68).
       const revoked = action.id === 'health_integrations' && !action.granted;
-      return { ...state, consents, connections: revoked ? state.connections.map((c) => (c.connected ? { ...c, connected: false, lastSync: undefined } : c)) : state.connections };
+      // Withdrawing the notifications consent switches every reminder type and personal reminder off (§41, §42).
+      const muted = action.id === 'notifications' && !action.granted;
+      const prefs = normalizeNotificationPrefs(state.notificationPrefs);
+      return {
+        ...state,
+        consents,
+        connections: revoked ? state.connections.map((c) => (c.connected ? { ...c, connected: false, lastSync: undefined } : c)) : state.connections,
+        notificationPrefs: muted ? { ...prefs, types: Object.fromEntries(Object.entries(prefs.types).map(([k, v]) => [k, { ...v, enabled: false }])) as NotificationPrefs['types'] } : state.notificationPrefs,
+        reminders: muted ? state.reminders.map((r) => ({ ...r, enabled: false })) : state.reminders,
+      };
     }
     case 'TOGGLE_CONNECTION':
       return {

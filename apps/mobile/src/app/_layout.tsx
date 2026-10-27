@@ -1,3 +1,5 @@
+import { Caveat_600SemiBold } from '@expo-google-fonts/caveat/600SemiBold';
+import { Caveat_700Bold } from '@expo-google-fonts/caveat/700Bold';
 import { DMMono_400Regular } from '@expo-google-fonts/dm-mono/400Regular';
 import { DMMono_500Medium } from '@expo-google-fonts/dm-mono/500Medium';
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans/400Regular';
@@ -33,6 +35,8 @@ export default function RootLayout() {
     Outfit_700Bold,
     DMMono_400Regular,
     DMMono_500Medium,
+    Caveat_600SemiBold,
+    Caveat_700Bold,
   });
 
   useEffect(() => {

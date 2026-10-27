@@ -1,4 +1,5 @@
 export * from './Button';
+export { buttonClasses } from './buttonStyles';
 export * from './Card';
 export * from './Badge';
 export * from './Form';

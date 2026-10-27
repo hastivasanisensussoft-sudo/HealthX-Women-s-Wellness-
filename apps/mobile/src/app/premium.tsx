@@ -1,5 +1,10 @@
-/** Subscriptions paywall (SRS §49; mockup M41) — Phase 2. The free trial is granted by the server; paid plans need store billing. Pricing is undecided (D-13). */
-import { Check, Crown, Minus, Sparkles, Star } from 'lucide-react-native';
+/**
+ * Subscriptions (SRS §49; mockup M41) — Phase 2. The 7-day free trial is granted (and ended) by the server;
+ * paid plans, renewal and receipts need store billing. Pricing is undecided (D-13). The trial end date is
+ * remembered on this phone from the server's reply.
+ */
+import { PREMIUM_FEATURES, diffDays, formatDate, hasPremium, toISODate, type PremiumFeature } from '@healthx/shared';
+import { CalendarClock, Check, Crown, Minus, Sparkles, Star } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -8,21 +13,21 @@ import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
+import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { GroupHeader, HeroPanel, LeafPair, ON_DARK } from '@/components/b-kit';
 import { errorMessage, useStore } from '@/lib/store';
+import { useDeviceData } from '@/lib/useDeviceData';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
+const PREMIUM_ORDER: PremiumFeature[] = ['advanced_insights', 'advanced_reports', 'advanced_cycle_history', 'coach', 'nutrition', 'programs', 'themes'];
 const ROWS: { label: string; free: boolean }[] = [
   { label: 'Period & symptom tracking', free: true },
-  { label: 'Basic wellness tracking', free: true },
+  { label: 'Basic wellness tracking & weekly summary', free: true },
   { label: 'Educational library', free: true },
   { label: 'Privacy controls', free: true },
-  { label: 'Advanced insights & reports', free: false },
-  { label: 'AI wellness coach', free: false },
-  { label: 'Nutrition & programs', free: false },
-  { label: 'Advanced cycle history', free: false },
+  ...PREMIUM_ORDER.map((k) => ({ label: PREMIUM_FEATURES[k].label, free: false })),
 ];
 
 /** EXAMPLE prices only — set per market at launch (D-13). */
@@ -36,13 +41,20 @@ export default function Premium() {
   const toast = useToast();
   const [plan, setPlan] = useState<'yearly' | 'monthly'>('yearly');
   const [busy, setBusy] = useState<'trial' | 'restore' | 'cancel' | null>(null);
-  const premium = state.profile.plan === 'premium';
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const trial = useDeviceData<{ endsAt: string } | null>('trial', null);
+  const premium = hasPremium(state.profile.plan);
+  // The server's trial end as a local calendar day. A remembered end that has passed is ignored (the server ends the trial itself).
+  const endDay = premium && trial.value ? toISODate(new Date(trial.value.endsAt)) : null;
+  const endsAt = endDay && endDay >= state.today ? endDay : null;
+  const daysLeft = endsAt ? diffDays(state.today, endsAt) : null;
 
   const startTrial = async () => {
     setBusy('trial');
     try {
-      await account.startTrial();
-      toast(`7-day free trial started — ${plan} plan (no charge in this build)`);
+      const r = await account.startTrial();
+      trial.set(r.trialEndsAt ? { endsAt: r.trialEndsAt } : null);
+      toast(`7-day free trial started — ${plan} plan chosen (no charge in this build)`);
     } catch (e) {
       toast(errorMessage(e), 'error');
     } finally {
@@ -59,6 +71,8 @@ export default function Premium() {
     setBusy('cancel');
     try {
       await account.cancelSubscription();
+      trial.set(null);
+      setConfirmCancel(false);
       toast('Back on the free plan — your data is kept', 'info');
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -81,7 +95,7 @@ export default function Premium() {
             Deeper insights for your wellness
           </AppText>
           {premium ? (
-            <Pill label="Active (demo)" tone="butter" style={{ marginTop: 12 }} />
+            <Pill label={endsAt ? 'Free trial active' : 'Active (demo)'} tone="butter" style={{ marginTop: 12 }} />
           ) : (
             <AppText variant="small" color={ON_DARK.text} style={{ marginTop: 6 }}>
               Try everything free for 7 days.
@@ -95,7 +109,23 @@ export default function Premium() {
       </HeroPanel>
 
       {premium ? (
-        <Button label="Switch back to free" variant="secondary" full loading={busy === 'cancel'} onPress={cancel} style={{ marginTop: 16 }} />
+        <>
+          <GroupHeader eyebrow="Your plan" title="Manage subscription" />
+          <Card style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+              <CalendarClock size={18} color={palette.green[700]} />
+              <AppText variant="bodyMedium" style={{ flex: 1 }}>
+                {endsAt ? `Trial ends ${formatDate(endsAt, 'long')} · ${daysLeft === 0 ? 'last day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}` : 'Premium is on'}
+              </AppText>
+            </View>
+            <AppText variant="small" muted>
+              {endsAt
+                ? 'When the trial ends you move back to Free automatically. Nothing renews and nothing is charged — store billing isn’t connected in this build.'
+                : 'In this build Premium has no renewal or charge. When store billing is added, renewal dates and receipts will show here.'}
+            </AppText>
+            <Button label="Cancel Premium" variant="secondary" full onPress={() => setConfirmCancel(true)} />
+          </Card>
+        </>
       ) : (
         <>
           <GroupHeader eyebrow="Trial first, no charge" title="Choose a plan" />
@@ -163,7 +193,34 @@ export default function Premium() {
       <AppText variant="caption" muted center style={{ marginTop: 6 }}>
         Downgrading never deletes your data. Core tracking stays free.
       </AppText>
-      <BackendNote style={{ marginTop: 14 }} text="Real purchases need App Store / Google Play billing, receipt validation and restore purchases (Phase 2)." />
+      <BackendNote style={{ marginTop: 14 }} text="Real purchases need App Store / Google Play billing, receipt validation, renewal and restore purchases (Phase 2)." />
+
+      <Sheet
+        visible={confirmCancel}
+        onClose={() => setConfirmCancel(false)}
+        eyebrow="Premium"
+        title="Switch back to Free?"
+        subtitle="Premium features lock straight away. Everything you’ve logged is kept, and core tracking stays free."
+        footer={
+          <View style={{ gap: 8 }}>
+            <Button label="Switch to Free" variant="danger" full loading={busy === 'cancel'} onPress={cancel} />
+            <Button label="Keep Premium" variant="ghost" full onPress={() => setConfirmCancel(false)} />
+          </View>
+        }>
+        <View style={{ gap: 6 }}>
+          {PREMIUM_ORDER.map((k) => (
+            <View key={k} style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <Minus size={14} color={palette.ink[400]} />
+              <AppText variant="small">{PREMIUM_FEATURES[k].label}</AppText>
+            </View>
+          ))}
+          {endsAt ? (
+            <AppText variant="caption" muted style={{ marginTop: 6 }}>
+              The free trial is once per account, so it can’t be restarted after you cancel.
+            </AppText>
+          ) : null}
+        </View>
+      </Sheet>
     </Screen>
   );
 }

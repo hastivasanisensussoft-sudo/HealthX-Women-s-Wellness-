@@ -1,8 +1,9 @@
 /**
  * Health integrations (SRS §28–§31, Phase 2; mockup M42). Connect / disconnect is stored via
  * TOGGLE_CONNECTION; connecting first needs the optional health-integrations consent (the server
- * enforces it). Data syncing itself is simulated, and per-data-type permissions are kept on this
- * screen for the demo — in production they come from the OS sheet (HealthKit / Health Connect).
+ * enforces it). Data syncing itself is simulated. Which data types may be read is remembered on this
+ * phone (the API can't store it yet); in production it comes from the OS sheet (HealthKit / Health
+ * Connect). Access is read-only: HealthX never writes to those apps.
  */
 import { timeAgo, type HealthConnection } from '@healthx/shared';
 import { router } from 'expo-router';
@@ -18,10 +19,12 @@ import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { TILE_TONES, type TileTone } from '@/components/Tiles';
 import { PageIntro, TintIcon } from '@/components/b-kit';
+import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { simulate } from '@/lib/hooks';
 import { useStore } from '@/lib/store';
 import { brandText, colors, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
+import { useDeviceData } from '@/lib/useDeviceData';
 
 const TYPE_ICON: Record<string, LucideIcon> = { Steps: Footprints, Distance: Ruler, Sleep: Moon, Workouts: Activity, Activity, Weight: Scale, 'Heart rate': HeartPulse };
 const SOURCE_ICON: Record<HealthConnection['id'], LucideIcon> = { apple_health: HeartPulse, health_connect: Smartphone, wearable: Watch };
@@ -36,8 +39,8 @@ export default function Integrations() {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
-  // Data types switched OFF by the user, per connection (demo-only, see header).
-  const [off, setOff] = useState<Record<string, string[]>>({ apple_health: ['Weight', 'Heart rate'] });
+  // Data types switched OFF by the person, per connection (kept on this phone, see header).
+  const { value: off, set: setOff } = useDeviceData<Record<string, string[]>>('integration-types', {});
   const [ask, setAsk] = useState<HealthConnection | null>(null);
   const consent = state.consents.find((x) => x.id === 'health_integrations');
 
@@ -92,7 +95,7 @@ export default function Integrations() {
               {c.connected ? (
                 <View style={{ marginTop: 8 }}>
                   <AppText variant="overline" color={colors.textSubtle} style={{ marginTop: 6 }}>
-                    Data HealthX may read
+                    Data HealthX may read · read-only
                   </AppText>
                   {c.dataTypes.map((t, i) => {
                     const TIcon = TYPE_ICON[t] ?? Activity;
@@ -108,6 +111,9 @@ export default function Integrations() {
                       />
                     );
                   })}
+                  <AppText variant="caption" muted style={{ marginTop: 4 }}>
+                    {DEVICE_ONLY_NOTE}
+                  </AppText>
                   <Button label={`Disconnect ${c.label.replace(' (Android)', '')}`} variant="secondary" size="sm" full loading={busy === c.id} onPress={() => toggle(c)} style={{ marginTop: 8 }} />
                 </View>
               ) : later ? (
@@ -128,7 +134,7 @@ export default function Integrations() {
         })}
       </View>
       <AppText variant="caption" muted style={{ marginTop: 12, fontStyle: 'italic' }}>
-        We only read the data types you allow. You can disconnect anytime.
+        We only read the data types you allow — HealthX never writes to or changes your health apps. You can disconnect anytime.
       </AppText>
       <BackendNote style={{ marginTop: 14 }} text="Real syncing needs HealthKit / Health Connect permissions and the health-integration service (Phase 2). Simulated here." />
 

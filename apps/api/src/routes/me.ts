@@ -2,14 +2,15 @@
  * /v1/me/* — the signed-in app user's own data. Every handler resolves the user from the
  * session (never from a parameter), so there is no way to address another user's records.
  */
-import { buildDailyPlan, createEmptyState, createInitialState, reducer, todayISO, type AppState } from '@healthx/shared';
+import { activityForAction, buildDailyPlan, createEmptyState, createInitialState, isUsageEvent, reducer, todayISO, USAGE_EVENTS, type AppState } from '@healthx/shared';
+import { recordAccountEvent, recordActivity, sourceOf, withManagedConfig } from '../activity';
 import { deleteAccountData } from '../accounts';
 import { requireEndUser, type AuthInfo, type Deps } from '../auth';
 import { publishedArticles, publishedIds } from '../content';
 import { verifyPasswordAsync } from '../crypto';
 import { badRequest, conflict, HttpError, notFound, tooMany, type Ctx, type Router } from '../http';
 import { validateUserAction } from '../userActions';
-import { obj, str } from '../validate';
+import { arr, obj, str } from '../validate';
 
 /** Record collections that can be fetched by id (object-level authorisation demo + API). */
 const COLLECTIONS = {
@@ -35,6 +36,8 @@ export function meRoutes(r: Router, deps: Deps) {
       const fresh = createEmptyState(todayISO(), a.account.email);
       s = { ...fresh, profile: { ...fresh.profile, id: a.account.id, name: a.account.name } };
     }
+    // Score weights, staff-added symptoms, switched-off insight rules and the approved plan library (Web Admin).
+    s = withManagedConfig(store, s);
     const today = todayISO();
     if (s.today !== today) s = { ...s, today, plan: s.plan.date === today ? s.plan : { date: today, items: buildDailyPlan(s, today) } };
     // The trial end is a server decision, applied on the next request after it passes.
@@ -80,9 +83,37 @@ export function meRoutes(r: Router, deps: Deps) {
     if (clientId && applied.includes(clientId)) return { body: { ok: true, duplicate: true } };
     const before = stateOf(a);
     const action = validateUserAction(b.action, { today: before.today, state: before, articleIds: publishedIds(store) });
-    save(a, reducer(before, action));
+    const next = reducer(before, action);
+    save(a, next);
     if (clientId) store.appliedActions.set(a.account.id, [...applied, clientId].slice(-500));
+    // Activity log (SRS §53): what kind of record was written and when — never its values. Actions that
+    // changed nothing (the reducer returned the same state, e.g. re-marking a read article) aren't activity.
+    const act = activityForAction(action);
+    if (act && next !== before) recordActivity(store, a.account.id, act, sourceOf(a.session.client));
     return { body: { ok: true } };
+  });
+
+  /**
+   * App-usage events (app opened, screens, videos…). Recorded only while the user's analytics consent
+   * is on (SRS §42); otherwise accepted and dropped, so the app doesn't need to know.
+   */
+  r.post('/v1/me/events', (ctx) => {
+    const a = requireEndUser(ctx, deps);
+    const wait = store.rate.hit(`me-events:${a.account.id}`, config.rate.userWritesPerWindow, config.rate.windowMs);
+    if (wait) throw tooMany(wait);
+    // Validate the whole batch first, so a bad entry records nothing.
+    const events = arr(obj(ctx.body, 'body', ['events']).events, 'events', 20).map((raw, i) => {
+      const e = obj(raw, `events[${i}]`, ['name', 'detail']);
+      if (!isUsageEvent(e.name)) throw badRequest(`events[${i}].name is not a known app event.`);
+      const detail = e.detail === undefined || e.detail === null ? undefined : str(e.detail, `events[${i}].detail`, 1, 120).trim();
+      // Route patterns and catalogue ids only (e.g. "/life-stage/[mode]", "a_sleep_routine") — no free text.
+      if (detail && !/^[\w./:[\]()-]+$/.test(detail)) throw badRequest(`events[${i}].detail may only contain letters, digits and / . : - _ [ ] ( ).`);
+      const x = USAGE_EVENTS[e.name];
+      return detail ? { ...x, detail } : x;
+    });
+    const consented = !!stateOf(a).consents.find((c) => c.id === 'analytics')?.granted;
+    if (consented) for (const x of events) recordActivity(store, a.account.id, x, sourceOf(a.session.client));
+    return { status: 202, body: { ok: true, recorded: consented ? events.length : 0, analyticsConsent: consented } };
   });
 
   r.get('/v1/me/records/:collection/:id', (ctx) => {
@@ -100,6 +131,7 @@ export function meRoutes(r: Router, deps: Deps) {
     if (wait) throw tooMany(wait);
     const s = stateOf(a);
     const { articles: _a, workouts: _w, ...data } = s;
+    recordAccountEvent(store, a.account, 'data_exported', a.session.client);
     return {
       body: { exportedAt: new Date().toISOString(), format: 'healthx-export-v1', account: { id: a.account.id, email: a.account.email, name: a.account.name, createdAt: a.account.createdAt }, data },
       headers: { 'Content-Disposition': `attachment; filename="healthx-export-${todayISO()}.json"` },
@@ -130,6 +162,7 @@ export function meRoutes(r: Router, deps: Deps) {
     store.userStates.set(a.account.id, { ...s, profile: { ...s.profile, plan: 'premium' } });
     a.account.trialUsed = true;
     a.account.trialEndsAt = new Date(Date.now() + TRIAL_MS).toISOString();
+    recordAccountEvent(store, a.account, 'subscription_started', a.session.client, 'free trial');
     return { body: { ok: true, plan: 'premium', trialEndsAt: a.account.trialEndsAt } };
   });
   r.post('/v1/me/subscription/cancel', (ctx) => {
@@ -137,6 +170,7 @@ export function meRoutes(r: Router, deps: Deps) {
     const s = stateOf(a);
     store.userStates.set(a.account.id, { ...s, profile: { ...s.profile, plan: 'free' } });
     a.account.trialEndsAt = null;
+    recordAccountEvent(store, a.account, 'subscription_cancelled', a.session.client);
     return { body: { ok: true, plan: 'free' } };
   });
 
@@ -147,6 +181,7 @@ export function meRoutes(r: Router, deps: Deps) {
     const cur = stateOf(a);
     const fresh = createInitialState(todayISO());
     store.userStates.set(a.account.id, { ...fresh, auth: { ...fresh.auth, onboarded: true, email: a.account.email }, profile: { ...fresh.profile, id: a.account.id, name: cur.profile.name || a.account.name, email: a.account.email, plan: cur.profile.plan } });
+    recordAccountEvent(store, a.account, 'sample_data_loaded', a.session.client);
     return { body: { ok: true } };
   });
   r.post('/v1/me/data/clear', (ctx) => {
@@ -155,6 +190,7 @@ export function meRoutes(r: Router, deps: Deps) {
     const cur = stateOf(a);
     const empty = createEmptyState(todayISO(), a.account.email);
     store.userStates.set(a.account.id, { ...empty, auth: { ...empty.auth, onboarded: true }, profile: { ...cur.profile }, consents: cur.consents });
+    recordAccountEvent(store, a.account, 'data_cleared', a.session.client);
     return { body: { ok: true } };
   });
 }

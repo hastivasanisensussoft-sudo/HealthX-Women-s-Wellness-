@@ -3,7 +3,9 @@
  * optimistic updates) and the API (which owns the authoritative copy and decides,
  * per action, whether the signed-in staff member may perform it).
  */
-import type { SymptomCategory } from '../types';
+import { defaultPlanLibrary, type PlanTemplate, type PlanTemplateStatus } from '../plan';
+import { DEFAULT_WEIGHTS } from '../state';
+import type { SymptomCategory, WellnessWeights } from '../types';
 import {
   defaultAccount,
   DEFAULT_SETTINGS,
@@ -85,6 +87,10 @@ export interface AdminState {
   taxonomy: Taxonomy;
   /** Per-staff account preferences, keyed by staff email. */
   accounts: Record<string, StaffAccount>;
+  /** Wellness Score weighting used by the app (SRS §31: configurable). */
+  scoreWeights: WellnessWeights;
+  /** Daily-plan template library (SRS §33). Only approved templates reach the app. */
+  planTemplates: PlanTemplate[];
 }
 
 type Env = 'dev' | 'staging' | 'prod';
@@ -113,6 +119,11 @@ export type AdminAction =
   | { type: 'DELETE_MEDIA'; id: string }
   | { type: 'SET_TAXONOMY'; taxonomy: Taxonomy }
   | { type: 'UPDATE_ACCOUNT'; email: string; patch: Partial<StaffAccount> }
+  | { type: 'SET_SCORE_WEIGHTS'; weights: WellnessWeights }
+  | { type: 'UPSERT_PLAN_TEMPLATE'; template: PlanTemplate }
+  | { type: 'SET_PLAN_TEMPLATE_STATUS'; id: string; status: Extract<PlanTemplateStatus, 'retired' | 'in_review'> }
+  | { type: 'REVIEW_PLAN_TEMPLATE'; id: string; decision: 'approve' | 'changes'; note?: string; by: string }
+  | { type: 'DELIVER_CAMPAIGN'; id: string }
   | { type: 'LOG'; entry: Omit<AuditEntry, 'id' | 'at' | 'ip'> }
   | { type: 'RESET' };
 
@@ -140,6 +151,8 @@ export function initialAdminState(): AdminState {
     media: seedMedia(content),
     taxonomy: seedTaxonomy(),
     accounts: {},
+    scoreWeights: { ...DEFAULT_WEIGHTS },
+    planTemplates: defaultPlanLibrary(),
   };
 }
 
@@ -214,6 +227,22 @@ export function adminReducer(s: AdminState, a: AdminAction): AdminState {
       return { ...s, taxonomy: a.taxonomy };
     case 'UPDATE_ACCOUNT':
       return { ...s, accounts: { ...s.accounts, [a.email]: { ...(s.accounts[a.email] ?? defaultAccount()), ...a.patch } } };
+    case 'SET_SCORE_WEIGHTS':
+      return { ...s, scoreWeights: { ...a.weights } };
+    case 'UPSERT_PLAN_TEMPLATE':
+      return { ...s, planTemplates: upsert(s.planTemplates, a.template, (t) => t.id === a.template.id) };
+    case 'SET_PLAN_TEMPLATE_STATUS':
+      return { ...s, planTemplates: s.planTemplates.map((t) => (t.id === a.id ? { ...t, status: a.status, updatedAt: nowIso() } : t)) };
+    case 'REVIEW_PLAN_TEMPLATE':
+      return {
+        ...s,
+        planTemplates: s.planTemplates.map((t) =>
+          t.id === a.id ? { ...t, status: a.decision === 'approve' ? 'approved' : 'changes_requested', reviewedBy: a.by, reviewedAt: nowIso(), reviewNote: a.note } : t,
+        ),
+      };
+    case 'DELIVER_CAMPAIGN':
+      // Offline demo: nothing is delivered to real inboxes; the campaign is marked sent in-app.
+      return { ...s, campaigns: s.campaigns.map((c) => (c.id === a.id ? { ...c, status: 'sent', channel: 'in_app', sentAt: nowIso(), delivered: c.reach } : c)) };
     case 'LOG': {
       seq += 1;
       return { ...s, audit: [{ ...a.entry, id: `au_${Date.now().toString(36)}_${seq}`, at: nowIso(), ip: '192.0.2.10 (demo)' }, ...s.audit] };
@@ -234,7 +263,7 @@ export function adminReducer(s: AdminState, a: AdminAction): AdminState {
  */
 export function migrateAdminState(raw: unknown): AdminState | null {
   if (!raw || typeof raw !== 'object') return null;
-  const s = raw as AdminState;
+  const s = withNewSlices(raw as AdminState);
   if (s.version === ADMIN_STATE_VERSION) return s;
   if (s.version !== 3 || !Array.isArray(s.staff)) return null;
   const staff: StaffMember[] = [];
@@ -252,4 +281,13 @@ export function migrateAdminState(raw: unknown): AdminState | null {
       ? { ...oldSession, role: sessionRole, privileges: sessionRole === 'admin' ? (staff.find((m) => m.email === oldSession.email)?.privileges ?? privilegesForLegacyRole(oldSession.role)) : [] }
       : null;
   return { ...s, version: ADMIN_STATE_VERSION, staff, session, permissions: migratePermissionMatrix(s.permissions) };
+}
+
+/** Slices added after v4 shipped (Daily plans, configurable score weights): filled in on load. */
+function withNewSlices(s: AdminState): AdminState {
+  return {
+    ...s,
+    scoreWeights: s.scoreWeights ?? { ...DEFAULT_WEIGHTS },
+    planTemplates: Array.isArray(s.planTemplates) ? s.planTemplates : defaultPlanLibrary(),
+  };
 }

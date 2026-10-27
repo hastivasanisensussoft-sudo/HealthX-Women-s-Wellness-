@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { ArrowRight, ChevronRight, Instagram, LayoutDashboard, Linkedin, LogIn, Menu, ShieldCheck, Smartphone, Stethoscope, UserPlus, X, Youtube } from 'lucide-react';
+import { ArrowRight, ChevronRight, Instagram, Linkedin, LogIn, Menu, ShieldCheck, Smartphone, Stethoscope, X, Youtube } from 'lucide-react';
 import { COPY } from '@healthx/shared';
 import { Leaf, Logo, SparkleShape } from '@/components/brand/Brand';
 import { Photo } from '@/components/media/Photo';
 import { ButtonLink } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { useAppState } from '@/store/AppStore';
 
 /** Public website navigation (SRS public area). */
 const SITE_LINKS = [
@@ -21,7 +20,6 @@ const SITE_LINKS = [
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const { auth } = useAppState();
   const loc = useLocation();
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 8);
@@ -38,7 +36,6 @@ export function SiteHeader() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
-  const inApp = auth.signedIn && auth.onboarded;
 
   return (
     <header className={cn('sticky top-0 z-50 border-b transition duration-300', scrolled || open ? 'border-ink-100 bg-white/90 backdrop-blur-xl' : 'border-transparent bg-white')}>
@@ -59,21 +56,16 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="hidden items-center gap-2 xl:flex">
-          {inApp && (
-            <ButtonLink to="/app" variant="ghost" size="sm" leftIcon={<LayoutDashboard className="h-4 w-4" />}>
-              Dashboard
-            </ButtonLink>
-          )}
-          <ButtonLink to="/login" variant="outline" size="sm" leftIcon={<LogIn className="h-4 w-4" />}>
-            Login
+          <ButtonLink to="/admin/login" variant="outline" size="sm" leftIcon={<LogIn className="h-4 w-4" />}>
+            Staff login
           </ButtonLink>
-          <ButtonLink to="/signup" variant="primary" size="sm" rightIcon={<ArrowRight className="h-4 w-4" />}>
-            Sign Up
+          <ButtonLink to="/get-the-app" variant="primary" size="sm" rightIcon={<ArrowRight className="h-4 w-4" />}>
+            Get the app
           </ButtonLink>
         </div>
         <div className="flex items-center gap-2 xl:hidden">
-          <ButtonLink to="/signup" size="sm" className="hidden sm:inline-flex">
-            Sign Up
+          <ButtonLink to="/get-the-app" size="sm" className="hidden sm:inline-flex">
+            Get the app
           </ButtonLink>
           <button
             aria-label={open ? 'Close menu' : 'Open menu'}
@@ -106,17 +98,12 @@ export function SiteHeader() {
               ))}
             </ul>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <ButtonLink to="/login" variant="outline" size="lg" leftIcon={<LogIn className="h-4 w-4" />}>
-                Login
+              <ButtonLink to="/admin/login" variant="outline" size="lg" leftIcon={<LogIn className="h-4 w-4" />}>
+                Staff login
               </ButtonLink>
-              <ButtonLink to="/signup" size="lg" leftIcon={<UserPlus className="h-4 w-4" />}>
-                Sign Up
+              <ButtonLink to="/get-the-app" size="lg" leftIcon={<Smartphone className="h-4 w-4" />}>
+                Get the app
               </ButtonLink>
-              {inApp && (
-                <ButtonLink to="/app" variant="secondary" className="col-span-2" leftIcon={<LayoutDashboard className="h-4 w-4" />}>
-                  Open dashboard
-                </ButtonLink>
-              )}
             </div>
           </nav>
           <div className="mx-auto mt-4 flex max-w-2xl items-center gap-3 rounded-3xl bg-sage/70 p-3">
@@ -135,7 +122,7 @@ export function SiteFooter() {
   const cols = [
     { title: 'Product', links: [['Features', '/features'], ['How it works', '/how-it-works'], ['Life stages', '/features#life-stages'], ['Pricing', '/pricing']] },
     { title: 'Company', links: [['About HealthX', '/about'], ['Contact us', '/contact'], ['HealthX Business', '/pricing#business'], ['Staff admin', '/admin/login']] },
-    { title: 'Help', links: [['FAQ', '/faq'], ['Open the app', '/app'], ['Sign up', '/signup'], ['Login', '/login']] },
+    { title: 'Help', links: [['FAQ', '/faq'], ['Get the app', '/get-the-app'], ['Contact support', '/contact'], ['Staff login', '/admin/login']] },
     { title: 'Legal', links: [['Privacy policy', '/privacy-policy'], ['Terms of use', '/terms'], ['Medical disclaimer', '#disclaimer'], ['Privacy requests', '/contact?topic=privacy']] },
   ];
   return (
@@ -150,7 +137,7 @@ export function SiteFooter() {
             <p className="mt-4 font-script text-[24px] font-bold text-butter-300">your body, your rhythm</p>
             <div className="mt-5 flex flex-wrap gap-2">
               {['iPhone', 'Android'].map((p) => (
-                <Link key={p} to="/signup" className="glass-dark inline-flex min-h-[44px] items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-white transition hover:bg-white/10">
+                <Link key={p} to="/get-the-app" className="glass-dark inline-flex min-h-[44px] items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-white transition hover:bg-white/10">
                   <Smartphone className="h-4 w-4 text-butter-300" />
                   Get it on {p}
                 </Link>

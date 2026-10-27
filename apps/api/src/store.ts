@@ -3,7 +3,7 @@
  * process stops. The shapes mirror what a PostgreSQL schema would hold (SRS §45/§46):
  * accounts, sessions, one-time tokens, per-user wellness state, admin/CMS state, audit log.
  */
-import type { AppState } from '@healthx/shared';
+import type { ActivityEvent, AppState } from '@healthx/shared';
 import type { AdminState, AdminUser, AuditEntry, PrivilegedCapability, StaffRole } from '@healthx/shared/admin';
 import { randomId, sha256 } from './crypto';
 
@@ -74,6 +74,22 @@ export interface OutboxMessage {
   link: string;
 }
 
+export interface HealthGrant {
+  staffId: string;
+  userId: string;
+  reason: string;
+  grantedAt: string;
+  expiresAt: number;
+}
+
+export interface UserNote {
+  id: string;
+  at: string;
+  by: string;
+  byId: string;
+  text: string;
+}
+
 export class RateLimiter {
   private hits = new Map<string, { count: number; resetAt: number }>();
   /** Counts a hit; returns seconds to wait when over the limit. */
@@ -121,6 +137,14 @@ export class Store {
   privacyOpeners = new Map<string, string>();
   /** Notification template key → account that proposed the pending copy. */
   templateProposers = new Map<string, string>();
+  /** Daily-plan template id → account that last edited it (that person can't approve it). */
+  planEditors = new Map<string, string>();
+  /** App user id → activity events, newest first (SRS §53). Erased with the account (§42). */
+  activity = new Map<string, ActivityEvent[]>();
+  /** `staffId:userId` → time-limited, reason-stated health-records access (audited). */
+  healthGrants = new Map<string, HealthGrant>();
+  /** App user id → internal staff notes (support context; never shown to the user's app). */
+  userNotes = new Map<string, UserNote[]>();
   outbox: OutboxMessage[] = [];
   rate = new RateLimiter();
 

@@ -54,7 +54,7 @@ const TYPE_LOOK: Record<string, { icon: LucideIcon; tone: string }> = {
 };
 const look = (k: string) => TYPE_LOOK[k] ?? { icon: Bell, tone: 'bg-green-50 text-green-700' };
 
-const CAMPAIGN_TONE: Record<string, BadgeTone> = { sent: 'green', scheduled: 'indigo', cancelled: 'gray' };
+const CAMPAIGN_TONE: Record<string, BadgeTone> = { sent: 'green', scheduled: 'indigo', draft: 'gray', cancelled: 'gray' };
 
 const COUNTRY_SHARE: Record<string, number> = { India: 0.46, 'United States': 0.14, 'United Kingdom': 0.09, Canada: 0.07, Australia: 0.06, 'United Arab Emirates': 0.07, Singapore: 0.05, Germany: 0.06 };
 const BASE_AUDIENCE = 24_000;
@@ -362,7 +362,7 @@ function Campaigns() {
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
-  // The API has no push provider, so it can only schedule campaigns (sending now is refused).
+  // Without a push provider the API delivers "now" campaigns to the app's in-app inbox; push can only be scheduled.
   const blankForm = { name: '', title: '', body: '', when: (apiMode ? 'later' : 'now') as 'now' | 'later', at: '' };
   const [form, setForm] = useState(blankForm);
   const [segment, setSegment] = useState<CampaignSegment>(ANY_SEGMENT);
@@ -392,22 +392,32 @@ function Campaigns() {
     setErrors(e);
     if (Object.keys(e).length) return;
     const now = form.when === 'now';
+    // API mode: saved as a draft, then delivered to matching people's in-app inbox by the server.
+    const inApp = apiMode && now;
     const c: Campaign = {
       id: `cmp_${Date.now().toString(36)}`,
       name: form.name.trim(),
       title: form.title.trim(),
       body: form.body.trim(),
       segment,
-      schedule: now ? new Date().toISOString().slice(0, 16) : form.at,
-      status: now ? 'sent' : 'scheduled',
+      schedule: inApp ? null : now ? new Date().toISOString().slice(0, 16) : form.at,
+      status: inApp ? 'draft' : now ? 'sent' : 'scheduled',
       createdBy: me,
       createdAt: new Date().toISOString(),
       reach,
       delivered: now ? Math.round(reach * 0.97) : undefined,
       opened: now ? 0 : undefined,
     };
-    void dispatch({ type: 'UPSERT_CAMPAIGN', campaign: c }).then((next) => {
+    void dispatch({ type: 'UPSERT_CAMPAIGN', campaign: c }).then(async (next) => {
       if (!next) return;
+      if (inApp) {
+        const sent = await dispatch({ type: 'DELIVER_CAMPAIGN', id: c.id });
+        const done = sent?.campaigns.find((x) => x.id === c.id);
+        if (done) toast.success('Sent to in-app inboxes', `${(done.delivered ?? 0).toLocaleString()} people will see it in the HealthX app · ${segmentSummary(segment)}`);
+        setCreating(false);
+        setForm(blankForm);
+        return;
+      }
       // The server counts the reach itself.
       const counted = next.campaigns.find((x) => x.id === c.id)?.reach ?? reach;
       toast.success(now ? 'Campaign sent (simulated)' : 'Campaign scheduled', `~${counted.toLocaleString()} people · ${segmentSummary(segment)}`);
@@ -517,7 +527,9 @@ function Campaigns() {
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12.5px] text-ink-600">{c.schedule?.replace('T', ' ') ?? '—'}</td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-ink-900">~{c.reach.toLocaleString()}</td>
                     <td className="min-w-[180px] px-4 py-3 text-xs text-ink-500">
-                      {c.delivered ? (
+                      {c.channel === 'in_app' ? (
+                        <span className="block whitespace-nowrap">{`In-app · ${c.delivered ?? 0} inbox${c.delivered === 1 ? '' : 'es'} · ${c.opened ?? 0} opened`}</span>
+                      ) : c.delivered ? (
                         <span className="block space-y-1">
                           <span className="block whitespace-nowrap">{`${delivered}% delivered · ${opened}% opened`}</span>
                           <span className="block h-1.5 overflow-hidden rounded-full bg-green-100">
@@ -534,6 +546,23 @@ function Campaigns() {
                       </StatusPill>
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {(c.status === 'scheduled' || c.status === 'draft') && can('manage_notifications') && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          leftIcon={<Send className="h-3.5 w-3.5" />}
+                          onClick={() =>
+                            void dispatch({ type: 'DELIVER_CAMPAIGN', id: c.id }).then((next) => {
+                              const done = next?.campaigns.find((x) => x.id === c.id);
+                              if (!done) return;
+                              audit('campaign.deliver', c.name, 'in-app inbox');
+                              toast.success('Sent to in-app inboxes', `${(done.delivered ?? 0).toLocaleString()} people will see it in the HealthX app.`);
+                            })
+                          }
+                        >
+                          Send in-app now
+                        </Button>
+                      )}
                       {c.status === 'scheduled' && can('manage_notifications') && (
                         <Button size="sm" variant="ghost" onClick={() => setCancelling(c)}>
                           Cancel
@@ -583,10 +612,16 @@ function Campaigns() {
                   <Input id="cmp-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} invalid={!!errors.title} maxLength={60} />
                 </Field>
                 {apiMode ? (
-                  <div>
-                    <p className="mb-1.5 text-sm font-semibold text-ink-800">When</p>
-                    <p className="text-sm text-ink-600">Scheduled send</p>
-                  </div>
+                  <Field label="When" htmlFor="cmp-when" hint={form.when === 'now' ? 'Delivered to the in-app inbox of matching people now (no push provider needed).' : 'Push sending needs a provider; scheduled campaigns can also be sent in-app from the list.'}>
+                    <Segmented
+                      value={form.when}
+                      onChange={(v) => setForm({ ...form, when: v })}
+                      options={[
+                        { value: 'now', label: 'Now · in-app' },
+                        { value: 'later', label: 'Schedule' },
+                      ]}
+                    />
+                  </Field>
                 ) : (
                   <Field label="When" htmlFor="cmp-when">
                     <Segmented

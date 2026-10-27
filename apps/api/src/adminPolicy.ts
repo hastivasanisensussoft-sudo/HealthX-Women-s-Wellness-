@@ -5,7 +5,7 @@
  * applies it and names the audit entry. Ids of new records, identities, authors, timestamps and
  * metrics are always written by the server. Returns null when nothing changed (no audit entry).
  */
-import { addDays, CONTENT_CATEGORIES, reducer, SYMPTOM_CATEGORIES, todayISO } from '@healthx/shared';
+import { addDays, CONTENT_CATEGORIES, PLAN_CONDITIONS, PLAN_ICONS, PLAN_SLOTS, reducer, SYMPTOM_CATEGORIES, todayISO, type AppNotification, type LifeStageMode, type PlanTemplate, type WellnessWeights } from '@healthx/shared';
 import {
   ALL_CAPABILITIES,
   ALL_ROLES,
@@ -19,6 +19,7 @@ import {
   mediaKindOf,
   PRIVACY_TYPES,
   PRIVILEGED_CAPABILITIES,
+  prohibitedTermsIn,
   ROLE_LABELS,
   STAFF_ROLES,
   type AdminSettings,
@@ -56,7 +57,14 @@ const ENVS = ['dev', 'staging', 'prod'] as const;
 const SAFE_ID = /^[\w-]{1,60}$/;
 const BUILT_IN_CATEGORIES = new Set<string>(CONTENT_CATEGORIES.map((c) => c.key));
 /** Size limits for lists staff can grow (memory is the only storage). */
-const LIMITS = { staff: 500, campaigns: 500, refunds: 5000, media: 2000, customSymptoms: 200, notes: 200 };
+const LIMITS = { staff: 500, campaigns: 500, refunds: 5000, media: 2000, customSymptoms: 200, notes: 200, planTemplates: 200 };
+const WEIGHT_KEYS: (keyof WellnessWeights)[] = ['activity', 'sleep', 'hydration', 'nutrition', 'habits', 'mood'];
+const MODES: LifeStageMode[] = ['cycle', 'pregnancy', 'perimenopause', 'menopause'];
+/** Health-related copy must avoid diagnostic and contraceptive claims (§67) before it goes to review or to users. */
+const safeCopy = (text: string, what: string) => {
+  const hits = prohibitedTermsIn(text);
+  if (hits.length) throw badRequest(`${what} can’t include: ${hits.join(', ')} (SRS §67 safety wording).`);
+};
 const CONSENT_IDS: Record<ConsentKey, string> = { analytics: 'analytics', ai: 'ai_personalization', integrations: 'health_integrations', notifications: 'notifications' };
 
 /** Names that differ only in case, spacing, compatibility forms or invisible characters are the same name. */
@@ -570,6 +578,97 @@ export function applyAdminAction(store: Store, auth: AuthInfo, raw: unknown, ori
       return { action: 'account.preferences', target: actor.email };
     }
 
+    case 'SET_SCORE_WEIGHTS': {
+      need(auth, 'manage_config');
+      const w = obj(a.weights, 'weights', WEIGHT_KEYS);
+      const next = Object.fromEntries(WEIGHT_KEYS.map((k) => [k, num(w[k], `weights.${k}`, 0, 100, true)])) as unknown as WellnessWeights;
+      const total = WEIGHT_KEYS.reduce((t, k) => t + next[k], 0);
+      if (total !== 100) throw badRequest(`Weights must total 100% (currently ${total}%).`);
+      const changed = WEIGHT_KEYS.filter((k) => next[k] !== s.scoreWeights[k]);
+      if (!changed.length) return null;
+      const detail = changed.map((k) => `${k} ${s.scoreWeights[k]}→${next[k]}`).join(', ');
+      s.scoreWeights = next;
+      return { action: 'config.score_weights', target: 'Wellness Score weights', detail };
+    }
+
+    case 'UPSERT_PLAN_TEMPLATE': {
+      need(auth, 'edit_content');
+      const t = obj(a.template, 'template');
+      const existing = typeof t.id === 'string' ? s.planTemplates.find((x) => x.id === t.id) : undefined;
+      const status = oneOf(t.status, 'template.status', ['draft', 'in_review'] as const);
+      const itemId = existing ? existing.itemId : str(t.itemId, 'template.itemId', 3, 48);
+      if (!existing && !/^plan_[a-z0-9_]{2,40}$/.test(itemId)) throw badRequest('template.itemId must look like plan_morning_stretch (lower-case letters, digits and _).');
+      const lifeStages = [...new Set(arr(t.lifeStages, 'template.lifeStages', MODES.length).map((m, i) => oneOf(m, `template.lifeStages[${i}]`, MODES)))];
+      const fields = {
+        slot: oneOf(t.slot, 'template.slot', PLAN_SLOTS.map((x) => x.key)),
+        title: str(t.title, 'template.title', 2, 80).trim(),
+        detail: str(t.detail, 'template.detail', 2, 140).trim(),
+        icon: oneOf(t.icon, 'template.icon', PLAN_ICONS),
+        when: oneOf(t.when, 'template.when', PLAN_CONDITIONS.map((c) => c.value)),
+        lifeStages,
+        order: num(t.order, 'template.order', 0, 999, true),
+      };
+      if (status === 'in_review') safeCopy(`${fields.title} ${fields.detail}`, 'Plan copy');
+      const same = existing && existing.status === status && (Object.keys(fields) as (keyof typeof fields)[]).every((k) => JSON.stringify(existing[k]) === JSON.stringify(fields[k]));
+      if (same) return null;
+      if (!existing) room(s.planTemplates.length, LIMITS.planTemplates, 'daily-plan template');
+      // Any change takes the template out of the live library until a Medical Content Reviewer approves it again.
+      const next: PlanTemplate = { ...(existing ?? { id: randomId('pt'), itemId }), ...fields, itemId, status, updatedBy: actor.name, updatedAt: now(), reviewNote: undefined };
+      s.planTemplates = existing ? s.planTemplates.map((x) => (x.id === next.id ? next : x)) : [...s.planTemplates, next];
+      store.planEditors.set(next.id, actor.id);
+      return { action: existing ? 'plan.template_update' : 'plan.template_create', target: next.title, detail: status };
+    }
+    case 'SET_PLAN_TEMPLATE_STATUS': {
+      need(auth, 'edit_content', 'publish_content');
+      const id = str(a.id, 'id', 1, 80);
+      const t = s.planTemplates.find((x) => x.id === id);
+      if (!t) throw notFound('Template not found.');
+      const status = oneOf(a.status, 'status', ['retired', 'in_review'] as const);
+      if (t.status === status) return null;
+      if (status === 'in_review') {
+        if (t.status === 'approved') throw conflict('This template is already approved.');
+        safeCopy(`${t.title} ${t.detail}`, 'Plan copy');
+        store.planEditors.set(t.id, actor.id);
+      }
+      s.planTemplates = s.planTemplates.map((x) => (x.id === id ? { ...x, status, updatedBy: actor.name, updatedAt: now() } : x));
+      return { action: status === 'retired' ? 'plan.template_retire' : 'plan.template_submit', target: t.title };
+    }
+    case 'REVIEW_PLAN_TEMPLATE': {
+      need(auth, 'medical_review');
+      const id = str(a.id, 'id', 1, 80);
+      const t = s.planTemplates.find((x) => x.id === id);
+      if (!t) throw notFound('Template not found.');
+      if (t.status !== 'in_review') throw conflict('Only templates waiting for review can be approved or sent back.');
+      if (store.planEditors.get(id) === actor.id) throw forbidden('You edited or submitted this template, so another reviewer must approve it.');
+      const decision = oneOf(a.decision, 'decision', ['approve', 'changes'] as const);
+      const note = decision === 'changes' ? str(a.note, 'note', 5, 500).trim() : optStr(a.note, 'note', 500)?.trim() || undefined;
+      s.planTemplates = s.planTemplates.map((x) =>
+        x.id === id ? { ...x, status: decision === 'approve' ? 'approved' : 'changes_requested', reviewedBy: actor.name, reviewedAt: now(), reviewNote: note } : x,
+      );
+      return { action: decision === 'approve' ? 'plan.template_approve' : 'plan.template_changes', target: t.title, detail: note?.slice(0, 200) };
+    }
+
+    case 'DELIVER_CAMPAIGN': {
+      need(auth, 'manage_notifications');
+      const id = str(a.id, 'id', 1, 80);
+      const c = s.campaigns.find((x) => x.id === id);
+      if (!c) throw notFound('Campaign not found.');
+      if (c.status !== 'draft' && c.status !== 'scheduled') throw conflict('Only draft or scheduled campaigns can be sent.');
+      safeCopy(`${c.title} ${c.body}`, 'Campaign copy');
+      // In-app inbox delivery (no push provider needed). Users who turned content notifications off are skipped.
+      const nid = `cmp_${c.id}`;
+      let delivered = 0;
+      for (const acc of segmentUsers(store, c.segment)) {
+        const st = store.userStates.get(acc.id);
+        if (!st || st.notificationPrefs.types.content?.enabled === false || st.notifications.some((n) => n.id === nid)) continue;
+        const note: AppNotification = { id: nid, type: 'content', title: c.title, body: c.body, createdAt: now(), read: false };
+        store.userStates.set(acc.id, { ...st, notifications: [note, ...st.notifications] });
+        delivered += 1;
+      }
+      s.campaigns = s.campaigns.map((x) => (x.id === id ? { ...x, status: 'sent', channel: 'in_app', sentAt: now(), schedule: null, reach: reachOf(store, c.segment), delivered, opened: 0 } : x));
+      return { action: 'campaign.deliver', target: c.name, detail: `${delivered} in-app inbox${delivered === 1 ? '' : 'es'}` };
+    }
+
     case 'LOG':
       // Audit entries are written by the server for every accepted action; client-written entries are ignored.
       return null;
@@ -588,6 +687,10 @@ function sendInvite(store: Store, acc: Account, origin: string) {
 
 /** App users a campaign segment matches (account attributes only). */
 function reachOf(store: Store, seg: CampaignSegment): number {
+  return segmentUsers(store, seg).length;
+}
+
+function segmentUsers(store: Store, seg: CampaignSegment): Account[] {
   const cutoff = (days: number) => Date.now() - days * 86400_000;
   return appUsers(store).filter((acc) => {
     if (acc.status !== 'active') return false;
@@ -601,7 +704,7 @@ function reachOf(store: Store, seg: CampaignSegment): number {
     if (seg.lastActive === '30d' && !(last >= cutoff(30))) return false;
     if (seg.lastActive === 'inactive_30d' && !(last < cutoff(30))) return false;
     return true;
-  }).length;
+  });
 }
 
 /** What completing a request does on the server: deletion erases the account; consent withdrawal turns the consent off. */

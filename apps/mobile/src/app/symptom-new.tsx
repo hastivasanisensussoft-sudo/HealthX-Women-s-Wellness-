@@ -1,5 +1,6 @@
-/** Create a custom symptom (SRS §15, mockup M16): live preview, name, category, default severity, icon. */
-import { CUSTOM_SYMPTOM_ICONS, SEVERITIES, SYMPTOM_CATEGORIES, type Severity, type SymptomCategory } from '@healthx/shared';
+/** Create a custom symptom (SRS §15, mockup M16): live preview, name, category, default severity, icon. Opened from Symptoms, it returns there with the new symptom selected. */
+import { CUSTOM_SYMPTOM_ICONS, SEVERITIES, SYMPTOM_CATEGORIES, formatDate, type Severity, type SymptomCategory } from '@healthx/shared';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Check, PencilLine } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -16,10 +17,12 @@ import { colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 const SEV_TONE: Record<Severity, 'green' | 'peach' | 'rose'> = { mild: 'green', moderate: 'peach', severe: 'rose' };
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export default function NewCustomSymptom() {
   const { state, dispatch } = useStore();
   const toast = useToast();
+  const params = useLocalSearchParams<{ date?: string; from?: string }>();
   const [name, setName] = useState('');
   const [category, setCategory] = useState<SymptomCategory>('physical');
   const [severity, setSeverity] = useState<Severity>('moderate');
@@ -29,14 +32,24 @@ export default function NewCustomSymptom() {
   const label = name.trim();
   const sevLabel = SEVERITIES.find((s) => s.key === severity)?.label ?? severity;
   const catLabel = SYMPTOM_CATEGORIES.find((c) => c.key === category)?.label ?? category;
+  // Day being logged on Symptoms (absent = today), kept when we go back there.
+  const date = params.date && ISO_DATE.test(params.date) && params.date <= state.today ? params.date : undefined;
+  // Back to Symptoms with the new symptom selected — when opened from there, or when there is nothing to go back to.
+  const toSymptoms = params.from === 'symptoms' || !router.canGoBack();
+  const dayText = date && date !== state.today ? formatDate(date, 'short') : 'today';
 
   const create = () => {
     if (label.length < 2) return setError('Use at least 2 characters.');
     if (label.length > 40) return setError('Keep it under 40 characters.');
     if (state.symptomDefs.some((s) => s.label.toLowerCase() === label.toLowerCase())) return setError('You already have a symptom with this name.');
     dispatch({ type: 'ADD_CUSTOM_SYMPTOM', label, category, icon, defaultSeverity: severity });
-    toast(`“${label}” added to your symptoms`);
-    goBack();
+    if (toSymptoms) {
+      toast(`“${label}” added and selected for ${dayText}`);
+      router.dismissTo({ pathname: '/symptoms', params: date ? { select: label, date } : { select: label } });
+    } else {
+      toast(`“${label}” added to your symptoms`);
+      goBack();
+    }
   };
 
   return (
@@ -48,7 +61,7 @@ export default function NewCustomSymptom() {
         <View>
           <Button label="Create symptom" size="lg" full onPress={create} />
           <AppText variant="caption" color={palette.green[700]} center style={{ marginTop: 8 }}>
-            It will appear in your symptom list from now on.
+            {toSymptoms ? `It will appear in your symptom list from now on — and comes back selected at this strength, ready to log for ${dayText}.` : 'It will appear in your symptom list from now on.'}
           </AppText>
         </View>
       }>

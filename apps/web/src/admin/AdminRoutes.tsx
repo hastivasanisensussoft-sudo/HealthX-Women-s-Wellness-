@@ -30,6 +30,10 @@ import Categories from './pages/Categories';
 import Compliance from './pages/Compliance';
 import Versions from './pages/Versions';
 import Account from './pages/Account';
+import UserProfile from './pages/UserProfile';
+import AppActivity from './pages/AppActivity';
+import DailyPlans from './pages/DailyPlans';
+import Appearance from './pages/Appearance';
 
 /**
  * Route guards are UX only: with the API running, the server re-checks the staff session, MFA and
@@ -78,6 +82,9 @@ export default function AdminRoutes() {
           <Route path="notifications" element={<Navigate to="/admin/notifications/templates" replace />} />
           <Route path="notifications/:tab" element={<RequireCap cap="view_notifications"><Notifications /></RequireCap>} />
           <Route path="users" element={<RequireCap cap="view_users"><UsersPage /></RequireCap>} />
+          <Route path="users/:id" element={<RequireCap cap="view_users"><UserProfile /></RequireCap>} />
+          <Route path="activity" element={<RequireCap cap="view_users"><AppActivity /></RequireCap>} />
+          <Route path="plans" element={<RequireCap cap="view_content"><DailyPlans /></RequireCap>} />
           <Route path="support" element={<RequireCap cap="manage_support"><Support /></RequireCap>} />
           <Route path="privacy-requests" element={<RequireCap cap="process_data_requests"><PrivacyRequests /></RequireCap>} />
           <Route path="roles" element={<RequireCap cap="view_staff"><Staff /></RequireCap>} />
@@ -88,6 +95,7 @@ export default function AdminRoutes() {
           <Route path="audit" element={<RequireCap cap="view_audit"><Audit /></RequireCap>} />
           <Route path="settings" element={<RequireCap cap="view_settings"><Settings /></RequireCap>} />
           <Route path="account" element={<Account />} />
+          <Route path="appearance" element={<Appearance />} />
           <Route path="*" element={<AdminNotFound />} />
         </Route>
       </Routes>

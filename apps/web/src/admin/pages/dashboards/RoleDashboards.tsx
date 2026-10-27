@@ -40,6 +40,7 @@ import { formatDateTime, slaRemaining } from '../../helpers';
 import { reviewTurnaroundHours, securityPosture, supportStats } from '../../metrics';
 import type { Capability } from '../../rbac';
 import { FeatureAdoptionCard, ItemList, PendingReviewsCard, PipelineCard, PlatformHero, RecentActivityCard, RequestList, WorkflowFeed } from './Widgets';
+import { ContentEngagementCard, LiveAppActivitySection, PlansCard } from './LiveWidgets';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -149,6 +150,8 @@ export function AdminDashboard() {
           { label: 'Audit log', hint: 'Every action', to: '/admin/audit', icon: <ScrollText className="h-5 w-5" />, tone: 'butter', cap: 'view_audit' },
         ]}
       />
+
+      <LiveAppActivitySection />
 
       <SectionTitle eyebrow="Users & support" title="Support desk" subtitle="The former Support Agent desk — account status, consents and requests, never health data." />
       <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -377,6 +380,10 @@ export function MedicalDashboard() {
           <ItemList items={templates.map((t) => ({ id: t.key, title: `${t.label} template`, meta: `Proposed by ${t.proposed?.by ?? '—'}`, to: '/admin/notifications/templates' }))} empty="No template changes waiting." cta="Review" />
         </Card>
       </div>
+      <div className="mb-8 grid gap-6 xl:grid-cols-2">
+        <PlansCard as="reviewer" />
+        <ContentEngagementCard />
+      </div>
       <Card className="card-pad">
         <CardHeader title="Recent decisions" subtitle="Approvals, change requests and rejections" icon={<RotateCcw className="h-5 w-5" />} />
         {decisions.length === 0 ? (
@@ -521,6 +528,10 @@ export function ContentDashboard() {
             </ol>
           )}
         </Card>
+      </div>
+      <div className="mb-8 grid gap-6 xl:grid-cols-2">
+        <PlansCard as="author" />
+        <ContentEngagementCard />
       </div>
       <div className="mb-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
         <Card className="card-pad">

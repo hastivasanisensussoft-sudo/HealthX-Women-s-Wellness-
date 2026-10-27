@@ -1,12 +1,9 @@
-import { lazy, Suspense, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { PageLoader } from './components/PageLoader';
 import NotFound from './components/NotFound';
 import { SiteLayout } from './site/SiteLayout';
-import { useToast } from './components/ui';
-import { STORE_NOTICE_EVENT, type StoreNotice } from './store/AppStore';
-import { ApiGate } from './user/components/ApiGate';
 
 // 1) Public website
 const Home = lazy(() => import('./site/pages/Home'));
@@ -17,17 +14,14 @@ const Pricing = lazy(() => import('./site/pages/Pricing'));
 const FaqPage = lazy(() => import('./site/pages/FaqPage'));
 const Contact = lazy(() => import('./site/pages/Contact'));
 const Legal = lazy(() => import('./site/pages/Legal'));
+const GetTheApp = lazy(() => import('./site/pages/GetTheApp'));
 
-// 2) User application (auth + onboarding entry points, then /app/*)
-const Login = lazy(() => import('./user/pages/auth/Login'));
-const Signup = lazy(() => import('./user/pages/auth/Signup'));
-const ForgotPassword = lazy(() => import('./user/pages/auth/ForgotPassword'));
-const ResetPassword = lazy(() => import('./user/pages/auth/ResetPassword'));
-const VerifyEmail = lazy(() => import('./user/pages/auth/VerifyEmail'));
-const Onboarding = lazy(() => import('./user/pages/onboarding/Onboarding'));
-const UserApp = lazy(() => import('./user/UserApp'));
+// 2) Account links from emails (people use HealthX in the mobile app; these pages finish the step on the web)
+const ResetPassword = lazy(() => import('./account/ResetPassword'));
+const VerifyEmail = lazy(() => import('./account/VerifyEmail'));
+const MagicLink = lazy(() => import('./account/MagicLink'));
 
-// 3) Admin panel
+// 3) Web Admin (Content Manager, Medical Content Reviewer, Admin)
 const AdminRoutes = lazy(() => import('./admin/AdminRoutes'));
 
 function ScrollToTop() {
@@ -38,28 +32,19 @@ function ScrollToTop() {
   return null;
 }
 
-/** Shows store notices (sync errors, offline, back online) as toasts. */
-function StoreNotices() {
-  const toast = useToast();
-  useEffect(() => {
-    const on = (e: Event) => {
-      const n = (e as CustomEvent<StoreNotice>).detail;
-      toast[n.tone](n.title, n.body);
-    };
-    window.addEventListener(STORE_NOTICE_EVENT, on);
-    return () => window.removeEventListener(STORE_NOTICE_EVENT, on);
-  }, [toast]);
-  return null;
+/** /login only exists for magic sign-in links; everything else about signing in happens in the app. */
+function LoginLink() {
+  const [params] = useSearchParams();
+  return params.get('magic') ? <MagicLink /> : <Navigate to="/get-the-app" replace />;
 }
 
-const gated = (el: ReactNode) => <ApiGate>{el}</ApiGate>;
+const toApp = <Navigate to="/get-the-app" replace />;
 
 export function App() {
   const { pathname } = useLocation();
   return (
     <ErrorBoundary resetKey={pathname}>
       <ScrollToTop />
-      <StoreNotices />
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route element={<SiteLayout />}>
@@ -70,17 +55,19 @@ export function App() {
             <Route path="pricing" element={<Pricing />} />
             <Route path="faq" element={<FaqPage />} />
             <Route path="contact" element={<Contact />} />
+            <Route path="get-the-app" element={<GetTheApp />} />
             <Route path="terms" element={<Legal doc="terms" />} />
             <Route path="privacy-policy" element={<Legal doc="privacy" />} />
           </Route>
 
-          <Route path="login" element={gated(<Login />)} />
-          <Route path="signup" element={gated(<Signup />)} />
-          <Route path="forgot-password" element={gated(<ForgotPassword />)} />
-          <Route path="reset-password" element={gated(<ResetPassword />)} />
-          <Route path="verify-email" element={gated(<VerifyEmail />)} />
-          <Route path="onboarding" element={gated(<Onboarding />)} />
-          <Route path="app/*" element={gated(<UserApp />)} />
+          <Route path="reset-password" element={<ResetPassword />} />
+          <Route path="verify-email" element={<VerifyEmail />} />
+          <Route path="login" element={<LoginLink />} />
+          {/* The end-user web app was retired: end users use the HealthX mobile app. */}
+          <Route path="signup" element={toApp} />
+          <Route path="forgot-password" element={toApp} />
+          <Route path="onboarding" element={toApp} />
+          <Route path="app/*" element={toApp} />
 
           <Route path="admin/*" element={<AdminRoutes />} />
 

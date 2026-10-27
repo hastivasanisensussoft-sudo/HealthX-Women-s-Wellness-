@@ -149,10 +149,13 @@ await step('offline write: toast + rolled back after re-sync', async () => {
   const after = (await store()).water.length;
   if (after !== before) throw new Error(`server water ${before}→${after}`);
 });
-await step('insights: Monthly + Cycle report periods', async () => {
+await step('insights: Monthly + Cycle report periods (Premium preview on Free)', async () => {
+  if ((await store()).profile.plan !== 'free') throw new Error('demo account is not on Free');
   await go('/insights?tab=weekly');
   await page.getByRole('tablist').filter({ hasText: 'Monthly' }).getByText('Monthly', { exact: true }).click();
   await page.getByText('Your last 30 days').first().waitFor({ timeout: 5000 });
+  await page.getByText('Monthly & cycle reports', { exact: true }).first().waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Start 7-day free trial' }).first().waitFor({ timeout: 3000 });
   await page.getByRole('tablist').filter({ hasText: 'Monthly' }).getByText('Cycle', { exact: true }).click();
   await page.getByText('This cycle so far').first().waitFor({ timeout: 5000 });
 });
@@ -200,9 +203,13 @@ await step('premium: start trial → active (server) → back to free → second
   await go('/premium');
   await page.getByLabel('Monthly, ₹249 / month').click();
   await page.getByText('Start 7-day free trial', { exact: true }).click();
-  await page.getByText('Active (demo)').first().waitFor({ timeout: 4000 });
+  await page.getByText('Free trial active').first().waitFor({ timeout: 4000 });
+  // The end date comes from the server's reply (7 days from now).
+  await page.getByText(/Trial ends .* · 7 days left/).first().waitFor({ timeout: 4000 });
   if ((await tv.state()).profile.plan !== 'premium') throw new Error('plan not premium on server');
-  await page.getByText('Switch back to free', { exact: true }).click();
+  await page.getByText('Cancel Premium', { exact: true }).click();
+  await page.getByText('Switch back to Free?').first().waitFor({ timeout: 4000 });
+  await page.getByText('Switch to Free', { exact: true }).click();
   await page.getByText('Start 7-day free trial', { exact: true }).waitFor({ timeout: 4000 });
   if ((await tv.state()).profile.plan !== 'free') throw new Error('plan not free on server');
   await page.getByText('Start 7-day free trial', { exact: true }).click();

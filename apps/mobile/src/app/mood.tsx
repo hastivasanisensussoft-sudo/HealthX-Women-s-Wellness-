@@ -1,5 +1,5 @@
-/** Mood log (SRS §16, mockup M17; Myflo mood faces + chips): mood, stress, anxiety, energy and what's affecting it. Merges into the day's check-in. */
-import { MOOD_FACTORS, MOODS, checkInOn, formatDate, type ISODate, type MoodLevel } from '@healthx/shared';
+/** Mood log (SRS §16, mockup M17; Myflo mood faces + chips): mood, energy, optional stress and anxiety, and what's affecting it. Merges into the day's check-in. */
+import { MOOD_FACTORS, MOODS, checkInOn, formatDate, type CheckIn, type ISODate, type MoodLevel } from '@healthx/shared';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams } from 'expo-router';
 import { Brain, CircleAlert, HeartPulse, Sparkles, Zap } from 'lucide-react-native';
@@ -10,7 +10,7 @@ import { MoodFace } from '@/components/Art';
 import { Disclaimer } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { Chip, Slider } from '@/components/Inputs';
+import { Chip, Slider, ToggleRow } from '@/components/Inputs';
 import { Screen, goBack } from '@/components/Screen';
 import { AppText } from '@/components/Text';
 import { KeyIcon } from '@/lib/icons';
@@ -25,6 +25,9 @@ export default function MoodLog() {
   const date: ISODate = params.date && params.date <= state.today ? params.date : state.today;
   const existing = checkInOn(state, date);
   const [mood, setMood] = useState<MoodLevel | null>(existing?.mood ?? null);
+  // Stress and anxiety are optional (SRS §16): off unless this day's check-in already has them.
+  const [stressOn, setStressOn] = useState(existing?.stress != null);
+  const [anxietyOn, setAnxietyOn] = useState(existing?.anxiety != null);
   const [stress, setStress] = useState(existing?.stress ?? 4);
   const [anxiety, setAnxiety] = useState(existing?.anxiety ?? 3);
   const [energy, setEnergy] = useState(existing?.energy ?? 6);
@@ -32,13 +35,17 @@ export default function MoodLog() {
   const [error, setError] = useState<string | null>(null);
 
   const toggle = (k: string) => setFactors((f) => (f.includes(k) ? f.filter((x) => x !== k) : [...f, k]));
+  const optionalHint = (on: boolean) => (on ? 'Included in this check-in' : 'Optional · not saved unless you add it');
 
   const save = () => {
     if (!mood) return setError('Choose how your mood is today.');
-    dispatch({
-      type: 'SAVE_CHECKIN',
-      checkIn: { ...(existing ?? { symptomIds: [] }), date, mood, stress, anxiety, energy, moodFactors: factors },
-    });
+    const checkIn: CheckIn = { ...(existing ?? { symptomIds: [] }), date, mood, energy, moodFactors: factors };
+    // Levels that are switched off are left out of the check-in (not saved as a value).
+    if (stressOn) checkIn.stress = stress;
+    else delete checkIn.stress;
+    if (anxietyOn) checkIn.anxiety = anxiety;
+    else delete checkIn.anxiety;
+    dispatch({ type: 'SAVE_CHECKIN', checkIn });
     toast(`Mood saved for ${date === state.today ? 'today' : formatDate(date, 'short')}`);
     goBack();
   };
@@ -83,9 +90,15 @@ export default function MoodLog() {
       </View>
 
       <Card style={{ marginTop: 14, gap: 18 }}>
-        <Slider label="Stress" value={stress} onChange={setStress} color={palette.lavender[500]} icon={<Brain size={17} color={palette.lavender[600]} />} />
-        <Slider label="Anxiety" value={anxiety} onChange={setAnxiety} color={palette.rose[400]} icon={<HeartPulse size={17} color={palette.rose[500]} />} />
         <Slider label="Energy" value={energy} onChange={setEnergy} color={palette.peach[500]} icon={<Zap size={17} color={palette.peach[600]} />} />
+        <View style={styles.optional}>
+          <ToggleRow title="Add stress level" subtitle={optionalHint(stressOn)} value={stressOn} onChange={setStressOn} last />
+          {stressOn ? <Slider label="Stress" value={stress} onChange={setStress} color={palette.lavender[500]} icon={<Brain size={17} color={palette.lavender[600]} />} /> : null}
+        </View>
+        <View style={styles.optional}>
+          <ToggleRow title="Add anxiety level" subtitle={optionalHint(anxietyOn)} value={anxietyOn} onChange={setAnxietyOn} last />
+          {anxietyOn ? <Slider label="Anxiety" value={anxiety} onChange={setAnxiety} color={palette.rose[400]} icon={<HeartPulse size={17} color={palette.rose[500]} />} /> : null}
+        </View>
       </Card>
 
       <View style={styles.panel}>
@@ -102,7 +115,7 @@ export default function MoodLog() {
         </View>
       </View>
 
-      {mood === 'very_low' || stress >= 8 || anxiety >= 8 ? (
+      {mood === 'very_low' || (stressOn && stress >= 8) || (anxietyOn && anxiety >= 8) ? (
         <Disclaimer
           tone="lavender"
           style={{ marginTop: 16 }}
@@ -124,6 +137,7 @@ const styles = StyleSheet.create({
   face: { width: 60, height: 60, borderRadius: 30, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', ...shadow.card },
   faceOn: { width: 66, height: 66, borderRadius: 33, borderWidth: 3, borderColor: palette.lavender[500] },
   error: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 },
+  optional: { borderTopWidth: 1, borderTopColor: colors.borderSoft, gap: 4 },
   panel: { marginTop: 14, backgroundColor: palette.lavender[50], borderRadius: 26, padding: 14, borderWidth: 1, borderColor: palette.lavender[100] },
   panelHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   panelIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },

@@ -61,6 +61,10 @@ try {
   console.log(`server state: onboarded=${st.auth?.onboarded} name=${st.profile?.name} lastPeriodStart=${st.cycleProfile?.lastPeriodStart} healthConsent=${st.consents?.find((c) => c.id === 'health_processing')?.granted} periods=${st.periods.length}`);
   if (!st.auth?.onboarded) throw new Error('onboarding not stored on the server');
   console.log('PASS onboarding stored on the server');
+  // Skipping the cycle step saves "not known" — never an assumed cycle length.
+  const cp = st.cycleProfile;
+  if (cp.lastPeriodStart !== null || cp.typicalCycleLength !== null || cp.typicalPeriodLength !== null || cp.regularity !== 'not_sure') throw new Error('skip saved assumed cycle values: ' + JSON.stringify(cp));
+  console.log('PASS skipped cycle step saved nothing assumed');
   await page.reload({ waitUntil: 'load' });
   await page.getByText('Wellness Score').first().waitFor({ timeout: 8000 });
   console.log('PASS reload → still signed in, lands on Home');

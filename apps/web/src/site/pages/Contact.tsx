@@ -167,11 +167,11 @@ export default function Contact() {
                 </Field>
                 {f.topic === 'privacy' && (
                   <Notice tone="info">
-                    To export or delete your data right away, log in and open{' '}
-                    <Link to="/app/privacy" className="font-semibold underline">
-                      Privacy &amp; data controls
-                    </Link>
-                    . We can’t act on account data from this form until we’ve confirmed it’s really you.
+                    To export or delete your data right away, open{' '}
+                    <Link to="/get-the-app" className="font-semibold underline">
+                      the HealthX app
+                    </Link>{' '}
+                    → Profile → Privacy &amp; data. We can’t act on account data from this form until we’ve confirmed it’s really you.
                   </Notice>
                 )}
                 <Field label="Message" htmlFor="ct-msg" error={errors.message} hint={`${f.message.length}/2000 · Please don’t include health details.`} required>

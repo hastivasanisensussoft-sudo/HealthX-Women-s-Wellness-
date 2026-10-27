@@ -114,9 +114,9 @@ await step('End User', async () => {
     await page.fill('#adm-pw', PASSWORD);
     await page.click('button[type=submit]');
     await page.getByText('No admin access').waitFor({ timeout: 8000 });
-    const fine = (await page.locator('a[href="/app"]').count()) > 0 && (await page.locator('nav[aria-label=Admin]').count()) === 0;
+    const fine = (await page.locator('a[href="/get-the-app"]').count()) > 0 && (await page.locator('nav[aria-label=Admin]').count()) === 0;
     ok(fine && !errors.length, `End User @${w}: no-access screen, no admin nav ${errors.join(' | ')}`);
-    tree['End User'] = ['(No admin access → link to /app)'];
+    tree['End User'] = ['(No admin access → link to /get-the-app)'];
     await ctx.close();
   }
 });

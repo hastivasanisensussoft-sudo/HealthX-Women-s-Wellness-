@@ -10,6 +10,14 @@ import type { AuthInfo } from './auth';
 import { publishDue } from './contentWorkflow';
 import type { Store } from './store';
 
+/** In-app campaign opens, counted from users' inboxes (no identities). */
+function openedCount(store: Store, campaignId: string): number {
+  const id = `cmp_${campaignId}`;
+  let n = 0;
+  for (const st of store.userStates.values()) if (st.notifications.some((x) => x.id === id && x.read)) n += 1;
+  return n;
+}
+
 export function projectAdminState(store: Store, auth: AuthInfo): AdminState {
   publishDue(store);
   const s = store.admin;
@@ -32,11 +40,13 @@ export function projectAdminState(store: Store, auth: AuthInfo): AdminState {
     defaults: s.defaults,
     support: can('manage_support') ? s.support.map((r) => ({ ...r, userEmail: maskEmail(r.userEmail) })) : [],
     templates: can('view_notifications') ? s.templates : [],
-    campaigns: can('view_notifications') ? s.campaigns : [],
+    campaigns: can('view_notifications') ? s.campaigns.map((c) => (c.channel === 'in_app' ? { ...c, opened: openedCount(store, c.id) } : c)) : [],
     refunds: can('manage_subscriptions') ? s.refunds : [],
     privacy: can('process_data_requests') ? s.privacy : [],
     media: contentRole ? s.media : [],
     taxonomy: s.taxonomy,
     accounts: s.accounts[me.email] ? { [me.email]: s.accounts[me.email] } : {},
+    scoreWeights: s.scoreWeights,
+    planTemplates: contentRole || can('manage_config') ? s.planTemplates : [],
   };
 }

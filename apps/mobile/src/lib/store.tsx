@@ -22,12 +22,15 @@ import {
   type Action,
   type AppState,
 } from '@healthx/shared';
-import { router, usePathname } from 'expo-router';
+import { router, usePathname, useSegments } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { AppState as RNAppState, View } from 'react-native';
 
 import { api, ApiError, isOfflineDemoChosen, onSessionEnd, setOfflineDemoChosen } from './api';
 import { useToast } from './toast';
+import { flush as flushEvents, setTracking, track } from './track';
+import { clearDeviceData } from './deviceData';
+import { syncLocalReminders } from './localReminders';
 import { BootCover, OfflineDemoBanner, ServerUnreachable } from '@/components/ConnectionStates';
 
 const KEY = 'healthx.mobile.state';
@@ -58,7 +61,8 @@ export interface AccountApi {
   resendVerification(): Promise<void>;
   exportData(): Promise<Record<string, unknown>>;
   deleteAccount(password: string): Promise<void>;
-  startTrial(): Promise<void>;
+  /** Starts the server-granted free trial; resolves with its end time (null in the offline demo). */
+  startTrial(): Promise<{ trialEndsAt: string | null }>;
   cancelSubscription(): Promise<void>;
   loadSampleData(): Promise<void>;
 }
@@ -255,11 +259,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (status === 'ready' && !signedIn && !PUBLIC_PATHS.has(pathname)) router.replace(signedOutRoute);
   }, [status, signedIn, pathname, signedOutRoute]);
 
+  // App-usage events for the Web Admin (lib/track.ts): API mode, signed in, analytics consent on.
+  const segments = useSegments();
+  const route = `/${segments.join('/')}`;
+  const analyticsOn = mode === 'api' && status === 'ready' && signedIn && !!state.consents.find((c) => c.id === 'analytics')?.granted;
+  // Set while rendering, not in an effect: screens' effects run before this provider's and must already see it.
+  setTracking(analyticsOn);
+  useEffect(() => {
+    if (analyticsOn) track('app_opened');
+  }, [analyticsOn]);
+  useEffect(() => {
+    if (analyticsOn) track('screen_viewed', route);
+  }, [analyticsOn, route]);
+
+  // Reminders on this phone follow the person's settings, reminders, cycle estimate and life-stage mode.
+  const reminderKey = signedIn
+    ? JSON.stringify([state.notificationPrefs, state.reminders, state.profile.mode, state.consents.find((c) => c.id === 'notifications')?.granted, state.periods.length, state.cycleProfile])
+    : '';
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const t = setTimeout(() => void syncLocalReminders(signedIn ? stateRef.current : null), 800);
+    return () => clearTimeout(t);
+  }, [reminderKey, status, signedIn]);
+
   // Pick up changes from other devices: on foreground and periodically.
   useEffect(() => {
     if (mode !== 'api' || status !== 'ready') return;
     const sub = RNAppState.addEventListener('change', (s) => {
-      if (s === 'active') void sync();
+      if (s === 'active') {
+        track('app_opened');
+        void sync();
+      } else void flushEvents();
     });
     const t = setInterval(() => void sync(), SYNC_MS);
     return () => {
@@ -363,6 +393,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return api.exportData();
       },
       async deleteAccount(password) {
+        // Phone-only data (weight history, lists, photo) goes with the account.
+        await clearDeviceData(stateRef.current.profile.id || stateRef.current.profile.email);
         if (modeRef.current === 'offline') {
           await AsyncStorage.removeItem(KEY).catch(() => undefined);
           hydrate(freshDemo());
@@ -374,9 +406,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         hydrate(signedOut());
       },
       async startTrial() {
-        if (modeRef.current === 'offline') return rawDispatch({ type: 'SET_PLAN', plan: 'premium' });
-        await api.startTrial();
+        if (modeRef.current === 'offline') {
+          rawDispatch({ type: 'SET_PLAN', plan: 'premium' });
+          return { trialEndsAt: null };
+        }
+        const r = await api.startTrial();
         await sync();
+        return { trialEndsAt: r.trialEndsAt ?? null };
       },
       async cancelSubscription() {
         if (modeRef.current === 'offline') return rawDispatch({ type: 'SET_PLAN', plan: 'free' });

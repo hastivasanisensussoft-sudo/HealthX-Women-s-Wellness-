@@ -20,6 +20,7 @@ import { GlassTag, GroupHeader, HScroll, PhotoPanel } from '@/components/b-kit';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
+import { track } from '@/lib/track';
 
 export default function Article() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,9 +30,16 @@ export default function Article() {
   const a = state.articles.find((x) => x.id === id);
 
   // Only once the store has loaded: while it boots, the mode (server or offline demo) isn't known yet.
+  // Keyed on the id and the read flag, not the article object: every server sync replaces that object, and
+  // re-sending "read" after each sync looped (write → sync → new object → write).
+  const notReadable = a ? isPlayable(a) : true;
+  const alreadyRead = !!a && state.readArticles.includes(a.id);
   useEffect(() => {
-    if (ready && a && !isPlayable(a)) dispatch({ type: 'MARK_ARTICLE_READ', articleId: a.id });
-  }, [ready, a, dispatch]);
+    if (ready && a && !notReadable && !alreadyRead) dispatch({ type: 'MARK_ARTICLE_READ', articleId: a.id });
+  }, [ready, a?.id, notReadable, alreadyRead, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps -- once per article
+  useEffect(() => {
+    if (ready && a) track('content_opened', a.id);
+  }, [ready, a?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- once per article
 
   if (!a || a.status !== 'published') {
     return (

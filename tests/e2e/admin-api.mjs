@@ -118,7 +118,7 @@ await step('end user', async () => {
   await page.fill('#adm-pw', PASSWORD);
   await page.click('button[type=submit]');
   await page.getByText('No admin access').waitFor({ timeout: 8000 });
-  ok((await page.locator('a[href="/app"]').count()) > 0 && (await page.locator('nav[aria-label=Admin]').count()) === 0, 'end user: "No admin access" with a link to the app, no admin nav');
+  ok((await page.locator('a[href="/get-the-app"]').count()) > 0 && (await page.locator('nav[aria-label=Admin]').count()) === 0, 'end user: "No admin access" with a link to the mobile app, no admin nav');
   await go(page, '/admin/users');
   ok(new URL(page.url()).pathname === '/admin/login' && (await page.locator('table').count()) === 0, 'end user: no admin session kept (deep link → staff sign-in)');
   allErrors.push(...errors);
@@ -227,26 +227,14 @@ await step('content lifecycle', async () => {
 });
 let aisha = null;
 await step('published article visible to an app user', async () => {
-  const ctx = await newContext(browser, { width: 1280 });
-  const page = await ctx.newPage();
-  const errors = watchErrors(page);
-  const tokenBox = { token: null };
-  page.on('request', (r) => {
-    const h = r.headers().authorization;
-    if (h && r.url().includes('/api/v1/me')) tokenBox.token = h.slice(7);
-  });
-  await page.goto(BASE + '/login', { waitUntil: 'networkidle' });
-  await page.fill('#email', APP_USER);
-  await page.fill('#password', PASSWORD);
-  await page.click('button[type=submit]');
-  await page.waitForURL((u) => u.pathname.startsWith('/app'), { timeout: 10000 });
-  await go(page, '/app/learn', 900);
-  await page.getByPlaceholder('Search yoga, pain, sleep…').fill(`Lifecycle check ${stamp}`);
-  await page.waitForTimeout(400);
-  ok((await page.getByText(TITLE).count()) > 0, `app user ${APP_USER} sees the article in /app/learn`);
+  // App users are on the mobile app: sign in as its client does and read the state it syncs.
+  const login = await fetch(`${API}/v1/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client': 'mobile' }, body: JSON.stringify({ email: APP_USER, password: PASSWORD }) }).then((r) => r.json());
+  ok(!!login.accessToken && !!login.refreshToken, `app user ${APP_USER} signs in as the mobile app`);
+  const st = await fetch(`${API}/v1/me/state`, { headers: { authorization: `Bearer ${login.accessToken}`, 'x-client': 'mobile' } }).then((r) => r.json());
+  ok(st.state?.articles?.some((a) => a.title === TITLE), `app user ${APP_USER} gets the article in the app's Learn library`);
   const pub = await fetch(`${API}/v1/content`).then((r) => r.json());
   ok(pub.items?.some((a) => a.title === TITLE), 'public published-content endpoint lists it');
-  aisha = { ctx, page, errors, tokenBox };
+  aisha = { tokenBox: { token: login.accessToken, refresh: login.refreshToken } };
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -308,7 +296,7 @@ await step('deactivation ends the user session', async () => {
   if (!aisha) throw new Error('app-user session missing');
   const oldToken = aisha.tokenBox.token;
   ok(!!oldToken, 'captured the app user’s access token');
-  const pre = await fetch(`${API}/v1/me/state`, { headers: { authorization: `Bearer ${oldToken}`, 'x-client': 'web' } });
+  const pre = await fetch(`${API}/v1/me/state`, { headers: { authorization: `Bearer ${oldToken}`, 'x-client': 'mobile' } });
   ok(pre.status === 200, `before: app user token works (${pre.status})`);
   const sa = S.owner.page;
   await go(sa, '/admin/users');
@@ -320,16 +308,12 @@ await step('deactivation ends the user session', async () => {
   ok(await waitToast(sa, /User deactivated/), 'Admin: deactivated (toast after the server accepted)');
   const u = S.owner.server.state.users.find((x) => x.id === 'usr_aisha');
   ok(u?.status === 'deactivated', `server row status ${u?.status}`);
-  const post = await fetch(`${API}/v1/me/state`, { headers: { authorization: `Bearer ${oldToken}`, 'x-client': 'web' } });
+  const post = await fetch(`${API}/v1/me/state`, { headers: { authorization: `Bearer ${oldToken}`, 'x-client': 'mobile' } });
   ok(post.status === 401, `after: the same access token is rejected (${post.status})`);
-  const refresh = await aisha.page.evaluate(() =>
-    fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include', headers: { 'X-Client': 'web', 'X-Requested-With': 'healthx', 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status),
-  );
-  ok(refresh === 401, `after: the refresh cookie no longer works (${refresh})`);
-  await aisha.page.reload({ waitUntil: 'networkidle' });
-  await aisha.page.waitForTimeout(800);
-  ok(!new URL(aisha.page.url()).pathname.startsWith('/app'), `app user is out of the app after reload (${new URL(aisha.page.url()).pathname})`);
-  await aisha.ctx.close();
+  const refresh = await fetch(`${API}/v1/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client': 'mobile' }, body: JSON.stringify({ refreshToken: aisha.tokenBox.refresh }) }).then((r) => r.status);
+  ok(refresh === 401, `after: the app's refresh token no longer works (${refresh})`);
+  const again = await fetch(`${API}/v1/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Client': 'mobile' }, body: JSON.stringify({ email: APP_USER, password: PASSWORD }) }).then((r) => r.status);
+  ok(again === 403, `after: signing in again is refused while deactivated (${again})`);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -449,7 +433,7 @@ await step('privileged permissions per Admin', async () => {
   await sa.getByRole('button', { name: 'Actions for Ritu Sharma' }).click();
   await sa.getByRole('menuitem', { name: 'Privileged permissions…' }).click();
   const dlg = sa.getByRole('dialog');
-  await dlg.getByText('Break-glass (data categories only)').click();
+  await dlg.getByText('Health records access').click();
   await dlg.getByRole('button', { name: 'Save' }).click();
   ok(await waitToast(sa, /Privileged permissions updated/), 'owner: grant saved by the server');
   ok((await staffRow(sa, 'Ritu Sharma').innerText()).includes('Break-glass'), 'staff table shows Ritu with Break-glass');
@@ -457,7 +441,7 @@ await step('privileged permissions per Admin', async () => {
   ok(ritu.server.state.session.privileges.includes('break_glass'), 'Ritu’s next session carries break_glass');
   await sa.getByRole('button', { name: 'Actions for Ritu Sharma' }).click();
   await sa.getByRole('menuitem', { name: 'Privileged permissions…' }).click();
-  await sa.getByRole('dialog').getByText('Break-glass (data categories only)').click();
+  await sa.getByRole('dialog').getByText('Health records access').click();
   await sa.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   ok(await waitToast(sa, /Privileged permissions updated/), 'owner: revoke saved by the server');
   const H = { authorization: `Bearer ${ritu.server.token}`, 'content-type': 'application/json', 'x-client': 'web-admin' };
@@ -471,6 +455,5 @@ for (const s of Object.values(S)) {
   allErrors.push(...s.errors);
   await s.ctx.close();
 }
-if (aisha) allErrors.push(...aisha.errors);
 await browser.close();
 process.exit(done(allErrors));

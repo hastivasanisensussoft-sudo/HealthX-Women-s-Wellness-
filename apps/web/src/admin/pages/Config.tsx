@@ -13,7 +13,6 @@ import {
   type WellnessWeights,
 } from '@healthx/shared';
 import { Badge, Button, Card, CardHeader, Field, Input, Notice, PhaseBadge, ProgressRing, Select, Switch, useToast, type Tone } from '@/components/ui';
-import { useAppState, useDispatch } from '@/store/AppStore';
 import { cv } from '@/theme/engine';
 import { cn } from '@/lib/utils';
 import { useAdmin } from '../adminState';
@@ -66,15 +65,13 @@ function PanelHead({ icon, tone, title, subtitle, action }: { icon: LucideIcon; 
 }
 
 function ScoreWeights() {
-  const liveAppState = useAppState();
-  const appDispatch = useDispatch();
-  const { audit, apiMode } = useAdmin();
+  const { state, dispatch, audit } = useAdmin();
   const toast = useToast();
-  // With the API there's no server-side weights setting yet, and a signed-in app user's own data must
-  // never feed an admin screen — so preview against the synthetic demo profile instead.
-  const sample = useMemo(() => (apiMode ? createInitialState() : null), [apiMode]);
-  const appState = sample ?? liveAppState;
-  const [draft, setDraft] = useState<WellnessWeights>(appState.weights);
+  const saved = state.scoreWeights;
+  // An app user's own data must never feed an admin screen, so the preview uses the synthetic demo profile.
+  const sample = useMemo(() => createInitialState(), []);
+  const appState = useMemo(() => ({ ...sample, weights: saved }), [sample, saved]);
+  const [draft, setDraft] = useState<WellnessWeights>(saved);
   const total = WEIGHT_KEYS.reduce((a, k) => a + (Number.isFinite(draft[k]) ? draft[k] : 0), 0);
   const invalidKey = WEIGHT_KEYS.find((k) => !Number.isInteger(draft[k]) || draft[k] < 0 || draft[k] > 100);
   const error = invalidKey ? `${WEIGHT_LABEL[invalidKey]} must be a whole number from 0 to 100.` : total !== 100 ? `Weights must total 100% — currently ${total}%.` : null;
@@ -83,13 +80,12 @@ function ScoreWeights() {
   const preview = useMemo(() => (error ? null : wellnessScore(appState, appState.today, draft)), [appState, draft, error]);
 
   const save = () => {
-    if (error || apiMode) return;
+    if (error) return;
     const diff = WEIGHT_KEYS.filter((k) => draft[k] !== appState.weights[k])
       .map((k) => `${WEIGHT_LABEL[k]} ${appState.weights[k]}→${draft[k]}`)
       .join(', ');
-    appDispatch({ type: 'SET_WEIGHTS', weights: draft });
-    audit('config.update', 'Wellness score weights', diff);
-    toast.success('Weights saved', 'The user dashboard Wellness Score now uses these weights.');
+    void dispatch({ type: 'SET_SCORE_WEIGHTS', weights: draft }).then((ok) => ok && toast.success('Weights saved', 'The Wellness Score in the mobile app uses these weights from its next sync.'));
+    audit('config.score_weights', 'Wellness Score weights', diff);
   };
 
   return (
@@ -137,13 +133,8 @@ function ScoreWeights() {
           <span>{error ?? 'Weights total 100% ✓'}</span>
           <span className="num text-base">{total}%</span>
         </div>
-        {apiMode && (
-          <Notice tone="info" className="mt-4">
-            Preview only — the HealthX API can’t store score weights yet, so they can’t be saved from here.
-          </Notice>
-        )}
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button onClick={save} disabled={apiMode || !!error || !changed}>
+          <Button onClick={save} disabled={!!error || !changed}>
             Save weights
           </Button>
           <Button variant="outline" leftIcon={<RotateCcw className="h-4 w-4" />} onClick={() => setDraft(DEFAULT_WEIGHTS)}>

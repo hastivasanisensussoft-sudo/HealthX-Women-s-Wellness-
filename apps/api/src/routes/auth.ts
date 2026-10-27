@@ -1,6 +1,7 @@
 /** /v1/auth/* — sign-up, sign-in (+ staff MFA), refresh rotation, sign-out, recovery (SRS §47/§48, A-01, A-02, A-04). */
 import { createEmptyState, todayISO } from '@healthx/shared';
-import { auditBy, capsOf, clearRefreshCookie, cookieFor, issueSession, publicUser, refreshTtlFor, requireAuth, requireEndUser, sessionAlive, tokenResponse, type Deps } from '../auth';
+import { recordAccountEvent } from '../activity';
+import { auditBy, capsOf, clearRefreshCookie, clientOf, cookieFor, issueSession, publicUser, refreshTtlFor, requireAuth, requireEndUser, sessionAlive, tokenResponse, type Deps } from '../auth';
 import { hashPasswordAsync, newTotpSecret, otpauthUrl, randomToken, verifyPasswordAsync, verifyTotp } from '../crypto';
 import { badRequest, conflict, forbidden, HttpError, notFound, tooMany, unauthorized, type Ctx, type Router } from '../http';
 import type { Account } from '../store';
@@ -65,9 +66,12 @@ export function authRoutes(r: Router, deps: Deps) {
       trialUsed: false,
     });
     const s = createEmptyState(todayISO(), addr);
-    store.userStates.set(acc.id, { ...s, profile: { ...s.profile, id: acc.id, name } });
+    // New accounts start with the tracking defaults set in Configuration (Web Admin).
+    store.userStates.set(acc.id, { ...s, waterTargetMl: store.admin.defaults.waterMl, sleepTargetHours: store.admin.defaults.sleepHours, profile: { ...s.profile, id: acc.id, name } });
     sendVerification(ctx, acc);
-    return { status: 201, body: issueSession(ctx, deps, acc) };
+    const body = issueSession(ctx, deps, acc);
+    recordAccountEvent(store, acc, 'user_registered', clientOf(ctx), 'email');
+    return { status: 201, body };
   });
 
   r.post('/v1/auth/verify-email', (ctx) => {
@@ -77,6 +81,7 @@ export function authRoutes(r: Router, deps: Deps) {
     if (!acc || acc.status !== 'active') throw new HttpError(400, 'invalid_token', 'This link has expired or was already used. Request a new one.');
     t.used = true;
     acc.emailVerified = true;
+    recordAccountEvent(store, acc, 'email_verified', clientOf(ctx));
     return { body: { ok: true } };
   });
 
@@ -117,7 +122,9 @@ export function authRoutes(r: Router, deps: Deps) {
       store.issueToken('mfa', acc.id, config.mfaTokenTtlMs, raw);
       return { body: { mfaRequired: true, mfaToken: raw } };
     }
-    return { body: issueSession(ctx, deps, acc) };
+    const body = issueSession(ctx, deps, acc);
+    recordAccountEvent(store, acc, 'user_logged_in', clientOf(ctx), 'password');
+    return { body };
   });
 
   r.post('/v1/auth/mfa/verify', (ctx) => {
@@ -179,6 +186,7 @@ export function authRoutes(r: Router, deps: Deps) {
     const a = requireAuth(ctx, deps);
     store.revokeSession(a.session);
     clearRefreshCookie(ctx, deps, a.session.client);
+    recordAccountEvent(store, a.account, 'user_logged_out', a.session.client);
     return {};
   });
 
@@ -187,6 +195,7 @@ export function authRoutes(r: Router, deps: Deps) {
     store.revokeAllFor(a.account.id);
     clearRefreshCookie(ctx, deps, a.session.client);
     if (a.account.role !== 'end_user') auditBy(deps, a.account, { action: 'staff.logout_all', target: a.account.email }, ctx.ip);
+    recordAccountEvent(store, a.account, 'logged_out_everywhere', a.session.client);
     return {};
   });
 
@@ -210,6 +219,7 @@ export function authRoutes(r: Router, deps: Deps) {
     // Another account's session id looks exactly like a missing one.
     if (!s || s.accountId !== a.account.id || s.revoked) throw notFound('Session not found.');
     store.revokeSession(s);
+    recordAccountEvent(store, a.account, 'session_revoked', a.session.client);
     return {};
   });
 
@@ -229,6 +239,7 @@ export function authRoutes(r: Router, deps: Deps) {
     store.revokeAllFor(a.account.id, a.session.id);
     store.dropTokens(a.account.id, ['reset', 'magic']);
     if (a.account.role !== 'end_user') auditBy(deps, a.account, { action: 'staff.password_change', target: a.account.email }, ctx.ip);
+    recordAccountEvent(store, a.account, 'password_changed', a.session.client);
     return {};
   });
 
@@ -240,6 +251,7 @@ export function authRoutes(r: Router, deps: Deps) {
       const raw = randomToken();
       store.issueToken('reset', acc.id, config.resetTtlMs, raw);
       store.outbox.unshift({ at: new Date().toISOString(), to: acc.email, subject: 'Reset your HealthX password', link: `${origin(ctx)}/reset-password?token=${raw}` });
+      recordAccountEvent(store, acc, 'password_reset_requested', clientOf(ctx));
     }
     // Same response whether or not the account exists (no account enumeration).
     return { status: 202, body: { ok: true } };
@@ -257,6 +269,7 @@ export function authRoutes(r: Router, deps: Deps) {
     acc.passwordHash = await hashPasswordAsync(next);
     store.revokeAllFor(acc.id);
     store.dropTokens(acc.id, ['reset', 'magic']);
+    recordAccountEvent(store, acc, 'password_reset_completed', clientOf(ctx));
     return {};
   });
 
@@ -269,6 +282,7 @@ export function authRoutes(r: Router, deps: Deps) {
       const raw = randomToken();
       store.issueToken('magic', acc.id, config.magicTtlMs, raw);
       store.outbox.unshift({ at: new Date().toISOString(), to: acc.email, subject: 'Your HealthX sign-in link', link: `${origin(ctx)}/login?magic=${raw}` });
+      recordAccountEvent(store, acc, 'magic_link_requested', clientOf(ctx));
     }
     return { status: 202, body: { ok: true } };
   });
@@ -280,7 +294,9 @@ export function authRoutes(r: Router, deps: Deps) {
     if (!acc || acc.status !== 'active' || acc.role !== 'end_user') throw new HttpError(400, 'invalid_token', 'This sign-in link has expired or was already used. Request a new one.');
     t.used = true;
     claimOwnership(acc);
-    return { body: issueSession(ctx, deps, acc) };
+    const body = issueSession(ctx, deps, acc);
+    recordAccountEvent(store, acc, 'user_logged_in', clientOf(ctx), 'magic link');
+    return { body };
   });
 
   r.post('/v1/auth/invite/accept', async (ctx) => {

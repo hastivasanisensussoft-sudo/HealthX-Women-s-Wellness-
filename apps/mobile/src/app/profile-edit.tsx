@@ -1,6 +1,6 @@
-/** Edit profile (SRS §9) with validation: arch portrait with leaves, avatar picker, basics, optional body data (§5 data minimisation) and goals. */
+/** Edit profile (SRS §9) with validation: arch portrait with leaves, your own photo (kept on this phone) or a sample avatar, basics, optional body data (§5 data minimisation, metric or imperial) and goals. */
 import { COUNTRIES, GOALS, type ActivityLevel, type GoalKey, type PhotoKey } from '@healthx/shared';
-import { Camera, Check, Ruler, Target, UserRound, type LucideIcon } from 'lucide-react-native';
+import { Camera, Check, ImagePlus, Ruler, Target, Trash2, UserRound, type LucideIcon } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -12,12 +12,17 @@ import { Photo } from '@/components/Photo';
 import { Screen, goBack } from '@/components/Screen';
 import { AppText } from '@/components/Text';
 import { LeafPair, PageIntro, TintIcon, type Tone } from '@/components/b-kit';
+import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { simulate } from '@/lib/hooks';
+import { PICK_MESSAGES, useProfilePhoto, type PhotoSource } from '@/lib/profilePhoto';
 import { useStore } from '@/lib/store';
 import { colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 const AVATARS: PhotoKey[] = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4'];
+const LB = 2.20462;
+const IN = 2.54;
+const round1 = (n: number) => Math.round(n * 10) / 10;
 const ACTIVITY: { key: ActivityLevel; label: string }[] = [
   { key: 'sedentary', label: 'Low' },
   { key: 'light', label: 'Light' },
@@ -29,24 +34,36 @@ export default function ProfileEdit() {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const p = state.profile;
+  const imperial = p.units === 'imperial';
+  const photo = useProfilePhoto();
   const [name, setName] = useState(p.name);
   const [dob, setDob] = useState(p.dob);
   const [country, setCountry] = useState(p.country);
-  const [height, setHeight] = useState(p.heightCm ? String(p.heightCm) : '');
-  const [weight, setWeight] = useState(p.weightKg ? String(p.weightKg) : '');
+  const [height, setHeight] = useState(p.heightCm ? String(imperial ? Math.round(p.heightCm / IN) : p.heightCm) : '');
+  const [weight, setWeight] = useState(p.weightKg ? String(imperial ? round1(p.weightKg * LB) : p.weightKg) : '');
   const [activity, setActivity] = useState<ActivityLevel | undefined>(p.activityLevel);
   const [avatar, setAvatar] = useState<PhotoKey | undefined>(p.avatar);
   const [goals, setGoals] = useState<GoalKey[]>(p.goals);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
+  // Stored in cm / kg; shown and typed in the person's units.
+  const heightCm = height ? (imperial ? Math.round(Number(height) * IN) : Number(height)) : undefined;
+  const weightKg = weight ? (imperial ? round1(Number(weight) / LB) : Number(weight)) : undefined;
+
+  const pickPhoto = async (source: PhotoSource) => {
+    const r = await photo.pick(source);
+    if (r === 'saved') toast('Photo updated');
+    else if (r !== 'cancelled') toast(PICK_MESSAGES[r], 'error');
+  };
+
   const save = async () => {
     const e: Record<string, string> = {};
     if (name.trim().length < 2) e.name = 'Please enter your name.';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || Number.isNaN(new Date(dob).getTime())) e.dob = 'Use the format YYYY-MM-DD.';
     else if (dob > state.today) e.dob = "Date of birth can't be in the future.";
-    if (height && (Number(height) < 100 || Number(height) > 230)) e.height = 'Height should be between 100 and 230 cm.';
-    if (weight && (Number(weight) < 30 || Number(weight) > 250)) e.weight = 'Weight should be between 30 and 250 kg.';
+    if (heightCm !== undefined && (!(heightCm >= 100) || heightCm > 230)) e.height = imperial ? 'Height should be between 40 and 90 in.' : 'Height should be between 100 and 230 cm.';
+    if (weightKg !== undefined && (!(weightKg >= 30) || weightKg > 250)) e.weight = imperial ? 'Weight should be between 66 and 551 lb.' : 'Weight should be between 30 and 250 kg.';
     if (!goals.length) e.goals = 'Keep at least one goal.';
     setErrors(e);
     if (Object.keys(e).length) return toast('Please check the highlighted fields', 'error');
@@ -54,7 +71,7 @@ export default function ProfileEdit() {
     await simulate(null, 600);
     dispatch({
       type: 'UPDATE_PROFILE',
-      patch: { name: name.trim(), dob, country, heightCm: height ? Number(height) : undefined, weightKg: weight ? Number(weight) : undefined, activityLevel: activity, avatar, goals },
+      patch: { name: name.trim(), dob, country, heightCm, weightKg, activityLevel: activity, avatar, goals },
     });
     setSaving(false);
     toast('Profile saved');
@@ -68,7 +85,9 @@ export default function ProfileEdit() {
       <View style={styles.head}>
         <View style={styles.archWrap}>
           <LeafPair size={130} style={{ left: -36, top: -14 }} />
-          {avatar ? (
+          {photo.uri ? (
+            <Photo source={{ uri: photo.uri }} shape="arch" radius={24} position="top" style={styles.arch} alt="Your profile photo" />
+          ) : avatar ? (
             <Photo photo={avatar} shape="arch" radius={24} position="top" style={styles.arch} alt="Selected profile photo" />
           ) : (
             <View style={[styles.arch, styles.archFallback]}>
@@ -79,8 +98,16 @@ export default function ProfileEdit() {
             <Camera size={15} color="#fff" />
           </View>
         </View>
+        <View style={styles.photoActions}>
+          <Button label="Take photo" icon={Camera} size="sm" variant="soft" onPress={() => void pickPhoto('camera')} />
+          <Button label="Choose photo" icon={ImagePlus} size="sm" variant="soft" onPress={() => void pickPhoto('library')} />
+          {photo.uri ? <Button label="Remove" icon={Trash2} size="sm" variant="ghost" onPress={photo.remove} /> : null}
+        </View>
+        <AppText variant="caption" muted center style={{ marginTop: 6, paddingHorizontal: 12 }}>
+          Your own photo: {DEVICE_ONLY_NOTE.charAt(0).toLowerCase() + DEVICE_ONLY_NOTE.slice(1)}
+        </AppText>
         <AppText variant="overline" color={palette.green[700]} style={{ marginTop: 16 }}>
-          Choose a photo
+          {photo.uri ? 'Or a sample photo (used when yours is removed)' : 'Or a sample photo'}
         </AppText>
         <View style={styles.picks} accessibilityRole="radiogroup">
           {AVATARS.map((a, i) => (
@@ -93,7 +120,7 @@ export default function ProfileEdit() {
           </Pressable>
         </View>
       </View>
-      <BackendNote text="Photo upload needs secure file storage (backend) — sample avatars only in the demo." style={{ marginTop: 12 }} />
+      <BackendNote text="Uploading your photo to your account needs secure file storage on the backend — until then it stays on this phone and only the sample choice syncs." style={{ marginTop: 12 }} />
 
       <Section icon={UserRound} tone="green" title="Basics">
         <TextField label="Name" value={name} onChangeText={setName} error={errors.name} autoCapitalize="words" />
@@ -110,8 +137,8 @@ export default function ProfileEdit() {
 
       <Section icon={Ruler} tone="sky" title="Optional" sub="Only used to personalise wellness suggestions.">
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <TextField label="Height (cm)" value={height} onChangeText={(v) => setHeight(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" error={errors.height} style={{ flex: 1 }} />
-          <TextField label="Weight (kg)" value={weight} onChangeText={(v) => setWeight(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" error={errors.weight} style={{ flex: 1 }} />
+          <TextField label={imperial ? 'Height (in)' : 'Height (cm)'} value={height} onChangeText={(v) => setHeight(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" error={errors.height} style={{ flex: 1 }} />
+          <TextField label={imperial ? 'Weight (lb)' : 'Weight (kg)'} value={weight} onChangeText={(v) => setWeight(v.replace(/[^\d.]/g, ''))} keyboardType="decimal-pad" error={errors.weight} style={{ flex: 1 }} />
         </View>
         <View style={{ gap: 8 }}>
           <AppText variant="label">Activity level</AppText>
@@ -165,6 +192,7 @@ function Section({ icon, tone, title, sub, children }: { icon: LucideIcon; tone:
 }
 
 const styles = StyleSheet.create({
+  photoActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 16 },
   head: { alignItems: 'center', paddingVertical: 18, borderRadius: 30, backgroundColor: palette.rose[50], borderWidth: 1, borderColor: palette.rose[100], overflow: 'hidden' },
   archWrap: { width: 120, height: 148 },
   arch: { width: 120, height: 148, borderWidth: 4, borderColor: colors.surface, ...shadow.lift },

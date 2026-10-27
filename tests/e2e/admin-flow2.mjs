@@ -41,7 +41,7 @@ await page.evaluate(() => localStorage.removeItem('healthx.admin.state'));
 // ---- Admin (the demo Admin persona holds every privileged permission)
 await login(3);
 await go('/admin/staff');
-const cell = page.locator('button[aria-label^="Content Manager — Look up user accounts"]');
+const cell = page.locator('button[aria-label^="Content Manager — Look up users and their app activity"]');
 check('Admin: content manager x view_users initially off', (await cell.getAttribute('aria-pressed')) === 'false');
 await cell.click();
 await page.waitForTimeout(200);
@@ -147,7 +147,7 @@ await logout();
 
 // ---- End user
 await login(0);
-check('End user: no-access screen with link to /app', (await count('text=No admin access')) > 0 && (await count('a[href="/app"]')) > 0);
+check('End user: no-access screen with link to the mobile app', (await count('text=No admin access')) > 0 && (await count('a[href="/get-the-app"]')) > 0);
 
 console.log(results.join('\n'));
 console.log(errors.length ? 'CONSOLE ERRORS:\n' + errors.join('\n') : 'no console errors');

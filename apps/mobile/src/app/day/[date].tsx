@@ -72,7 +72,17 @@ export default function DayDetail() {
   const logs = symptomsOn(state, date);
   const water = waterOn(state, date);
   const sleep = sleepHoursOn(state, date);
-  const notes = [ci?.note, period?.notes, ...logs.map((l) => l.notes)].filter((x): x is string => !!x);
+  const symptomLabel = (id: string) => state.symptomDefs.find((s) => s.id === id)?.label ?? 'Archived symptom';
+  // Symptom notes are shown with their symptoms, once per distinct note (a note shared by several symptoms lists them all).
+  const symptomNotes: { note: string; labels: string[] }[] = [];
+  logs.forEach((l) => {
+    const note = l.notes?.trim();
+    if (!note) return;
+    const hit = symptomNotes.find((n) => n.note === note);
+    if (hit) hit.labels.push(symptomLabel(l.symptomId));
+    else symptomNotes.push({ note, labels: [symptomLabel(l.symptomId)] });
+  });
+  const notes = [ci?.note, period?.notes].filter((x): x is string => !!x);
   const title = `${formatDate(date, 'weekday')}, ${formatDate(date, 'short')}`;
   const kindTone = kind === 'period' || kind === 'predicted_period' ? { bg: palette.rose[50], border: palette.rose[200], fg: palette.rose[700] } : kind === 'none' ? null : { bg: fertile[50], border: fertile[200], fg: fertile[700] };
   const isToday = date === state.today;
@@ -149,15 +159,25 @@ export default function DayDetail() {
 
       <Section icon={Stethoscope} tint={palette.peach} title="Symptoms" onEdit={!future ? () => router.push({ pathname: '/symptoms', params: { date } }) : undefined}>
         {logs.length ? (
-          <View style={styles.wrap}>
-            {logs.map((l) => (
-              <View key={l.id} style={styles.tag}>
-                <AppText variant="caption" color={palette.peach[700]} style={{ fontFamily: font.semibold }}>
-                  {state.symptomDefs.find((s) => s.id === l.symptomId)?.label ?? 'Archived symptom'} · {SEVERITIES.find((s) => s.key === l.severity)?.label}
-                </AppText>
-              </View>
+          <>
+            <View style={styles.wrap}>
+              {logs.map((l) => (
+                <View key={l.id} style={styles.tag}>
+                  <AppText variant="caption" color={palette.peach[700]} style={{ fontFamily: font.semibold }}>
+                    {symptomLabel(l.symptomId)} · {SEVERITIES.find((s) => s.key === l.severity)?.label}
+                  </AppText>
+                </View>
+              ))}
+            </View>
+            {symptomNotes.map((n) => (
+              <AppText key={n.note} variant="small" color={colors.text} style={{ marginTop: 8 }}>
+                <AppText variant="smallMedium" color={palette.peach[700]}>
+                  {n.labels.join(', ')}:
+                </AppText>{' '}
+                {n.note}
+              </AppText>
             ))}
-          </View>
+          </>
         ) : (
           <AppText variant="small" muted style={{ marginTop: 8 }}>
             Nothing logged.

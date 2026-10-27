@@ -64,6 +64,7 @@ export const SYMPTOMS: SymptomDef[] = [
   { id: 'constipation', label: 'Constipation', category: 'digestive', icon: 'circle-slash' },
   { id: 'diarrhea', label: 'Diarrhea', category: 'digestive', icon: 'droplets' },
   { id: 'appetite_changes', label: 'Appetite changes', category: 'digestive', icon: 'utensils' },
+  { id: 'digestive_changes', label: 'Digestive changes', category: 'digestive', icon: 'circle-dot' },
   { id: 'acne', label: 'Acne', category: 'skin', icon: 'sparkle' },
   { id: 'dry_skin', label: 'Dry skin', category: 'skin', icon: 'sun' },
   { id: 'oily_skin', label: 'Oily skin', category: 'skin', icon: 'droplet' },
@@ -90,6 +91,7 @@ export const PERIOD_SYMPTOM_IDS = [
   'nausea',
   'acne',
   'appetite_changes',
+  'digestive_changes',
 ];
 
 export const MOODS: { key: MoodLevel; label: string; score: number; emoji: string }[] = [
@@ -175,6 +177,8 @@ export const NOTIFICATION_TYPES: { key: NotificationType; label: string; example
   { key: 'habit', label: 'Daily check-in', example: 'Time for your daily wellness check-in.', icon: 'smile' },
   { key: 'hydration', label: 'Hydration', example: "You are behind today's hydration goal.", icon: 'glass-water' },
   { key: 'workout', label: 'Workout', example: 'Your scheduled workout is ready.', icon: 'dumbbell' },
+  { key: 'sleep', label: 'Sleep goal', example: 'Time to start winding down for your sleep goal.', icon: 'moon' },
+  { key: 'appointment', label: 'Appointments', example: 'Reminder: your appointment is today.', icon: 'calendar-heart' },
   { key: 'content', label: 'Content', example: 'New wellness article available.', icon: 'book-open' },
   { key: 'report', label: 'Weekly report', example: 'Your weekly summary is ready.', icon: 'bar-chart-3' },
 ];

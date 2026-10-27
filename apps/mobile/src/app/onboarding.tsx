@@ -21,7 +21,7 @@ import {
   type Regularity,
 } from '@healthx/shared';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Bell, CalendarDays, Camera, Check, ChevronRight, CircleAlert, Droplet, HeartHandshake, Lock, Repeat, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react-native';
+import { Bell, CalendarDays, Camera, Check, ChevronRight, CircleAlert, Droplet, HeartHandshake, ImagePlus, Lock, Repeat, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react-native';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -36,7 +36,10 @@ import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
+import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { KeyIcon } from '@/lib/icons';
+import { requestReminderPermission } from '@/lib/localReminders';
+import { PICK_MESSAGES, useProfilePhoto, type PhotoSource } from '@/lib/profilePhoto';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, onDark, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
@@ -46,9 +49,10 @@ import { useToast } from '@/lib/toast';
 const TOTAL = 5;
 const AVATARS: PhotoKey[] = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4'];
 const ACTIVITY: { key: ActivityLevel; label: string }[] = [
-  { key: 'light', label: 'Low' },
+  { key: 'sedentary', label: 'Low' },
+  { key: 'light', label: 'Light' },
   { key: 'moderate', label: 'Moderate' },
-  { key: 'active', label: 'High' },
+  { key: 'active', label: 'Active' },
 ];
 const REMINDERS: { key: 'cycle' | 'habit' | 'hydration'; label: string }[] = [
   { key: 'cycle', label: 'Your estimated period may begin soon*' },
@@ -121,6 +125,8 @@ export default function Onboarding() {
   const [name, setName] = useState(params.name || state.profile.name || '');
   const [avatar, setAvatar] = useState<PhotoKey | undefined>(undefined);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const photo = useProfilePhoto();
+  const [asking, setAsking] = useState(false);
   const [dob, setDob] = useState({ d: '', m: '', y: '' });
   const [country, setCountry] = useState('India');
   const [language, setLanguage] = useState('English');
@@ -188,7 +194,7 @@ export default function Onboarding() {
 
   const finish = (allowNotifications: boolean) => {
     const cycle: CycleProfile = {
-      lastPeriodStart: lastUnknown || skipCycle ? null : lastStart,
+      lastPeriodStart: lastUnknown ? null : lastStart,
       typicalCycleLength: cycleLen,
       typicalPeriodLength: periodLen,
       regularity,
@@ -284,13 +290,27 @@ export default function Onboarding() {
         <AppText variant="caption" muted style={{ marginTop: 10 }}>
           * Estimate based on the information you provide. Lock-screen text never shows health details.
         </AppText>
-        <Button label="Allow notifications" icon={Bell} size="lg" full style={{ marginTop: 22 }} onPress={() => finish(true)} />
+        <Button
+          label="Allow notifications"
+          icon={Bell}
+          size="lg"
+          full
+          loading={asking}
+          style={{ marginTop: 22 }}
+          onPress={async () => {
+            // The phone's own permission prompt, only after the person chose to allow reminders.
+            setAsking(true);
+            await requestReminderPermission();
+            setAsking(false);
+            finish(true);
+          }}
+        />
         <Pressable accessibilityRole="button" onPress={() => finish(false)} style={({ pressed }) => [styles.notNow, pressed && { backgroundColor: palette.green[50] }]}>
           <AppText variant="bodyBold" color={palette.green[700]}>
             Not now
           </AppText>
         </Pressable>
-        <BackendNote text="The real system permission prompt appears on device. Push delivery requires the notification backend." />
+        <BackendNote text="Your phone asks for permission next and shows these reminders itself. Server push (e.g. new content) needs the notification backend." />
       </Screen>
     );
   }
@@ -317,7 +337,11 @@ export default function Onboarding() {
               ? () => setStep(2)
               : step === 4
                 ? () => {
+                    // Skipping saves "not known" — never an assumed 28/29-day cycle.
                     setLastUnknown(true);
+                    setCycleLen(null);
+                    setPeriodLen(null);
+                    setRegularity('not_sure');
                     setStep(5);
                   }
                 : undefined
@@ -416,7 +440,9 @@ export default function Onboarding() {
           <View style={{ alignItems: 'center' }}>
             <Pressable accessibilityRole="button" accessibilityLabel="Choose a profile photo" onPress={() => setAvatarOpen(true)} style={styles.avatarWrap}>
               <View style={styles.avatarRing}>
-                {avatar ? (
+                {photo.uri ? (
+                  <Photo source={{ uri: photo.uri }} shape="circle" style={styles.avatarImg} />
+                ) : avatar ? (
                   <Photo photo={avatar} shape="circle" style={styles.avatarImg} />
                 ) : (
                   <View style={[styles.avatarImg, styles.avatarFallback]}>
@@ -471,7 +497,16 @@ export default function Onboarding() {
       {step === 4 && (
         <View style={{ gap: 14 }}>
           <StepTitle eyebrow="Your cycle" title="Tell us about your cycle" text="Every cycle is different — we never assume 28 days." />
-          {skipCycle ? <Disclaimer tone="lavender" text="Because you chose pregnancy or menopause, you can skip this step. You can add cycle details any time." /> : null}
+          {skipCycle ? (
+            <Disclaimer
+              tone="lavender"
+              text={
+                goals.includes('pregnancy_wellness')
+                  ? 'Because you chose pregnancy wellness, you can skip this step — or add the first day of your last period to estimate your pregnancy week. You can add cycle details any time.'
+                  : 'Because you chose menopause, you can skip this step. You can add cycle details any time.'
+              }
+            />
+          ) : null}
           <View style={styles.cycleCard}>
             <View style={styles.cycleHead}>
               <View style={[styles.cycleIcon, { backgroundColor: palette.rose[50] }]}>
@@ -571,7 +606,7 @@ export default function Onboarding() {
               value={consents.ai_personalization}
               onChange={(v) => setConsents({ ...consents, ai_personalization: v })}
             />
-            <ToggleRow title="Product analytics" subtitle="Anonymous usage events — never your health values." value={consents.analytics} onChange={(v) => setConsents({ ...consents, analytics: v })} />
+            <ToggleRow title="Product analytics" subtitle="Which screens and features you use — never your health values." value={consents.analytics} onChange={(v) => setConsents({ ...consents, analytics: v })} />
             <ToggleRow
               title="Health integrations"
               subtitle="Apple Health / Health Connect imports."
@@ -590,7 +625,23 @@ export default function Onboarding() {
         </View>
       )}
 
-      <Sheet visible={avatarOpen} onClose={() => setAvatarOpen(false)} title="Profile photo" subtitle="Pick a sample photo or use your initial.">
+      <Sheet visible={avatarOpen} onClose={() => setAvatarOpen(false)} title="Profile photo" subtitle="Use your own photo, a sample photo or your initial.">
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+          {(['camera', 'library'] as PhotoSource[]).map((src) => (
+            <Button
+              key={src}
+              label={src === 'camera' ? 'Take photo' : 'Choose photo'}
+              icon={src === 'camera' ? Camera : ImagePlus}
+              variant="soft"
+              style={{ flex: 1 }}
+              onPress={async () => {
+                const r = await photo.pick(src);
+                if (r === 'saved') setAvatarOpen(false);
+                else if (r !== 'cancelled') toast(PICK_MESSAGES[r], 'error');
+              }}
+            />
+          ))}
+        </View>
         <View style={styles.avatarGrid}>
           {AVATARS.map((a) => {
             const on = avatar === a;
@@ -602,6 +653,7 @@ export default function Onboarding() {
                 accessibilityLabel={`Sample photo ${a.slice(-1)}`}
                 onPress={() => {
                   setAvatar(a);
+                  photo.remove();
                   setAvatarOpen(false);
                 }}
                 style={[styles.avatarOption, on && styles.avatarOptionOn]}>
@@ -622,10 +674,13 @@ export default function Onboarding() {
           style={{ marginTop: 16 }}
           onPress={() => {
             setAvatar(undefined);
+            photo.remove();
             setAvatarOpen(false);
           }}
         />
-        <BackendNote style={{ marginTop: 12 }} text="Uploading your own photo needs camera/photo permission and storage — simulated in the demo." />
+        <AppText variant="caption" muted center style={{ marginTop: 12 }}>
+          Your own photo: {DEVICE_ONLY_NOTE.charAt(0).toLowerCase() + DEVICE_ONLY_NOTE.slice(1)}
+        </AppText>
       </Sheet>
 
       <Sheet

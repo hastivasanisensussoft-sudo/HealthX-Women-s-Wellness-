@@ -106,7 +106,7 @@ export default function Features() {
         position="50% 20%"
       >
         <div className="flex flex-wrap gap-3">
-          <ButtonLink to="/signup" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+          <ButtonLink to="/get-the-app" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
             Start free
           </ButtonLink>
           <ButtonLink to="/pricing" size="lg" variant="outline">

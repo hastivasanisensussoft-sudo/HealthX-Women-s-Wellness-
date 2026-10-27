@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './styles/index.css';
 import { App } from './App';
-import { AppStoreProvider } from './store/AppStore';
 import { ToastProvider } from './components/ui/Toast';
 import { applyTheme, loadThemePrefs } from './theme/engine';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -15,11 +14,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <BrowserRouter>
-        <AppStoreProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </AppStoreProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </BrowserRouter>
     </ThemeProvider>
   </StrictMode>,

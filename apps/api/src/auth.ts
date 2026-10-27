@@ -44,7 +44,7 @@ export function publicUser(store: Store, a: Account) {
   return { id: a.id, email: a.email, name: a.name, role: a.role, status: a.status, capabilities: capsOf(store, a), privileges: a.role === 'admin' ? a.privileges : [], mfaEnrolled: !!a.mfaSecret, emailVerified: a.emailVerified };
 }
 
-const clientOf = (ctx: Ctx): Session['client'] => {
+export const clientOf = (ctx: Ctx): Session['client'] => {
   const c = String(ctx.req.headers['x-client'] ?? '').toLowerCase();
   return c === 'web' ? 'web' : c === 'web-admin' ? 'web-admin' : c === 'mobile' ? 'mobile' : 'api';
 };

@@ -1,8 +1,8 @@
 /** Cycle tab (mockup M13; Mira / Moonly references): phase dial hero, range calendar, phases, quick links, media and recent periods. */
-import { COPY, PHASES, cycleStateOf, diffDays, formatDate, phaseColors, sortPeriods, type CyclePhase } from '@healthx/shared';
+import { COPY, PHASES, cycleStateOf, diffDays, estimateBasis, formatDate, phaseColors, sortPeriods, type CyclePhase } from '@healthx/shared';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { CalendarDays, ChevronRight, Droplet, Flower2, History, Pencil, Plus, Smile, Stethoscope } from 'lucide-react-native';
+import { Baby, CalendarDays, ChevronRight, Droplet, Flower2, History, Pencil, Plus, Settings2, Smile, Stethoscope } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -21,7 +21,7 @@ import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { QuickTile } from '@/components/Tiles';
 import { VideoCard } from '@/components/Video';
-import { phaseText, sourceText } from '@/lib/cycleText';
+import { phaseText } from '@/lib/cycleText';
 import { useDemoLoading } from '@/lib/hooks';
 import { useStore } from '@/lib/store';
 import { brandText, colors, fertile, font, onDark, palette, shadow } from '@/lib/theme';
@@ -37,6 +37,9 @@ export default function CycleTab() {
   const recent = sortPeriods(state.periods).slice(-3).reverse();
   const openPeriod = state.periods.find((p) => p.end === null);
   const comfort = state.articles.find((a) => a.id === 'a_cramps_comfort' && a.status === 'published');
+  // Pregnancy mode pauses period and phase estimates (D-21); logged history stays visible.
+  const paused = state.profile.mode === 'pregnancy';
+  const basis = estimateBasis(state);
 
   const phaseRanges = useMemo(() => {
     if (!cs.avgCycleLength || !cs.fertileWindow || !cs.currentCycleStart) return null;
@@ -52,10 +55,24 @@ export default function CycleTab() {
   }, [cs]);
 
   const nextLabel = openPeriod ? 'Period' : 'Next period';
-  const nextValue = openPeriod ? `Day ${diffDays(openPeriod.start, state.today) + 1}` : cs.daysUntilNextPeriod != null ? `~${Math.max(0, cs.daysUntilNextPeriod)} days*` : '—';
+  const nextValue = openPeriod ? `Day ${diffDays(openPeriod.start, state.today) + 1}` : paused ? 'Paused' : cs.daysUntilNextPeriod != null ? `~${Math.max(0, cs.daysUntilNextPeriod)} days*` : '—';
 
   return (
     <Screen title="Cycle" eyebrow={cs.hasData && cs.cycleDay ? `Cycle day ${cs.cycleDay}` : 'Your cycle'} subtitle="Estimates learn from the periods you log." largeTitle tabBarSpace>
+      {paused && !loading ? (
+        <Card tone="mint" style={{ marginBottom: 14, gap: 8 }} onPress={() => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'pregnancy' } })} accessibilityLabel="Pregnancy mode is on. Open pregnancy wellness">
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+            <Baby size={18} color={palette.green[700]} />
+            <AppText variant="bodyMedium" style={{ flex: 1 }}>
+              Pregnancy mode is on
+            </AppText>
+            <ChevronRight size={16} color={palette.green[700]} />
+          </View>
+          <AppText variant="caption" muted>
+            Period estimates, phases and period reminders are paused. Your logged history is kept.
+          </AppText>
+        </Card>
+      ) : null}
       {loading ? (
         <View style={{ gap: 12 }}>
           <SkeletonCard height={230} />
@@ -65,6 +82,7 @@ export default function CycleTab() {
       ) : !cs.hasData ? (
         <Card>
           <EmptyState icon={CalendarDays} tone="rose" title="No cycle data yet" text="Log your most recent period to start seeing your cycle day and estimates." action="Log a period" onAction={() => router.push('/log-period')} />
+          <Button label="Or add your typical cycle length" icon={Settings2} variant="ghost" size="sm" onPress={() => router.push('/cycle-settings')} style={{ alignSelf: 'center', marginTop: 4 }} />
         </Card>
       ) : (
         <>
@@ -87,7 +105,7 @@ export default function CycleTab() {
                     {nextLabel}
                   </AppText>
                   <AppText style={styles.heroBig}>{nextValue}</AppText>
-                  {!openPeriod && cs.nextPeriodStart ? (
+                  {!openPeriod && !paused && cs.nextPeriodStart ? (
                     <AppText variant="caption" color={onDark.green[100]}>
                       around {formatDate(cs.nextPeriodStart, 'short')}*
                     </AppText>
@@ -96,7 +114,7 @@ export default function CycleTab() {
                 <View style={styles.phaseChip}>
                   <View style={[styles.phaseDot, { backgroundColor: cs.phase ? phaseColors[cs.phase].solid : palette.ink[300] }]} />
                   <AppText variant="caption" color={palette.green[900]} style={{ fontFamily: font.semibold, flexShrink: 1 }} numberOfLines={2}>
-                    {phaseText(cs)}
+                    {paused ? 'Phase estimates paused' : phaseText(cs)}
                   </AppText>
                 </View>
               </View>
@@ -124,7 +142,7 @@ export default function CycleTab() {
           {/* Range calendar (Mira) */}
           <SectionHeader eyebrow="Tap a day to see or edit it" title="Calendar" action="Full view" onAction={() => router.push('/calendar')} />
           <Card>
-            <MonthCalendar month={month} onMonthChange={setMonth} periods={state.periods} state={cs} onSelect={(d) => router.push({ pathname: '/day/[date]', params: { date: d } })} />
+            <MonthCalendar month={month} onMonthChange={setMonth} periods={state.periods} state={cs} showEstimates={!paused} onSelect={(d) => router.push({ pathname: '/day/[date]', params: { date: d } })} />
             <Legend
               items={[
                 { color: palette.rose[500], label: 'Logged' },
@@ -135,12 +153,18 @@ export default function CycleTab() {
             />
           </Card>
           <EstimateNote compact style={{ marginTop: 10 }} text="Estimate based on the information you’ve provided — not a confirmation of ovulation." />
-          <AppText variant="caption" muted style={{ marginTop: 8 }}>
-            {sourceText(cs)} · {cs.isRegular === null ? 'regularity not known yet' : cs.isRegular ? 'lengths look fairly consistent' : 'lengths vary'}
-          </AppText>
+          <View style={styles.basisRow}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="smallMedium">{paused ? 'Estimates paused' : basis.label}</AppText>
+              <AppText variant="caption" muted>
+                {basis.detail} {cs.isRegular === null ? 'Regularity not known yet.' : cs.isRegular ? 'Lengths look fairly consistent.' : 'Lengths vary.'}
+              </AppText>
+            </View>
+            <Button label="Cycle settings" icon={Settings2} variant="ghost" size="sm" onPress={() => router.push('/cycle-settings')} />
+          </View>
 
           {cs.isRegular === false ? <Disclaimer tone="rose" title="Observed pattern" style={{ marginTop: 12 }} text={`${COPY.irregular} ${COPY.concern}`} /> : null}
-          {cs.isLate ? <Disclaimer tone="lavender" style={{ marginTop: 12 }} text={`Your estimated start date (${formatDate(cs.nextPeriodStart!, 'short')}) has passed. Cycles naturally vary — log your period when it starts. ${COPY.concern}`} /> : null}
+          {cs.isLate && !paused ? <Disclaimer tone="lavender" style={{ marginTop: 12 }} text={`Your estimated start date (${formatDate(cs.nextPeriodStart!, 'short')}) has passed. Cycles naturally vary — log your period when it starts. ${COPY.concern}`} /> : null}
 
           {/* Phases */}
           <SectionHeader eyebrow="Estimated for this cycle" title="Cycle phases" />
@@ -316,6 +340,7 @@ export default function CycleTab() {
 }
 
 const styles = StyleSheet.create({
+  basisRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   hero: { borderRadius: 30, padding: 18, overflow: 'hidden', ...shadow.lift },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   dialWrap: { width: 150, height: 150, borderRadius: 75, backgroundColor: colors.surface },

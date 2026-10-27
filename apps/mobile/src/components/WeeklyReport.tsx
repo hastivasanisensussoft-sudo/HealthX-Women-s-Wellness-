@@ -1,30 +1,18 @@
 /**
  * Rules-based wellness report (SRS §36, §61; mockup M30) for the last week, the last 30 days
- * or the current cycle. Every number is deterministic (§37) — no causal claims.
+ * or the current cycle. Every number is deterministic (§37) — no causal claims. Each view uses its
+ * own `weeklySummary(state, today, n)` window. The weekly view is free; the monthly and cycle views
+ * are Premium (advanced reports).
  */
-import {
-  COPY,
-  addDays,
-  checkInOn,
-  cycleStateOf,
-  diffDays,
-  formatDate,
-  lastNDays,
-  sleepHoursOn,
-  stepsOn,
-  waterOn,
-  weeklySummary,
-  workoutsOn,
-  type AppState,
-  type ISODate,
-} from '@healthx/shared';
+import { COPY, PHASES, cycleStateOf, diffDays, formatDate, weeklySummary, type AppState } from '@healthx/shared';
 import { CalendarHeart, Droplets, Dumbbell, Footprints, Moon, Smile, Sparkles, Target, TrendingUp, Zap } from 'lucide-react-native';
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { PhaseBadge } from './Badges';
+import { EstimateNote, PhaseBadge } from './Badges';
 import { Card } from './Card';
 import { BarChart } from './Charts';
+import { PremiumGate } from './PremiumGate';
 import { AppText } from './Text';
 import { GroupHeader, HeroPanel, StatCardB, TintIcon, ON_DARK } from './b-kit';
 import { useStore } from '@/lib/store';
@@ -34,50 +22,34 @@ export type ReportPeriod = 'weekly' | 'monthly' | 'cycle';
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
-function daysFor(s: AppState, period: ReportPeriod): ISODate[] {
-  if (period === 'weekly') return lastNDays(s.today, 7);
-  if (period === 'monthly') return lastNDays(s.today, 30);
+/** Days in the view, always ending today: 7, 30, or the current cycle so far (max 60). */
+function daysIn(s: AppState, period: ReportPeriod): number {
+  if (period === 'weekly') return 7;
+  if (period === 'monthly') return 30;
   const start = cycleStateOf(s).currentCycleStart;
-  if (!start) return lastNDays(s.today, 28);
-  const n = Math.min(60, diffDays(start, s.today) + 1);
-  return Array.from({ length: n }, (_, i) => addDays(start, i));
+  if (!start) return 28;
+  return Math.max(1, Math.min(60, diffDays(start, s.today) + 1));
 }
 
 function summarize(s: AppState, period: ReportPeriod) {
-  const w = weeklySummary(s);
-  const days = daysFor(s, period);
-  const checks = days.map((d) => checkInOn(s, d)).filter((c): c is NonNullable<typeof c> => !!c);
-  const positive = checks.filter((c) => c.mood === 'good' || c.mood === 'excellent').length;
-  const sleeps = days.map((d) => sleepHoursOn(s, d)).filter((x): x is number => x !== null);
-  const avgSleep = avg(sleeps);
-  const hydration = avg(days.map((d) => Math.min(1, waterOn(s, d) / s.waterTargetMl))) ?? 0;
-  const energy = avg(checks.map((c) => c.energy));
+  const n = daysIn(s, period);
+  const w = weeklySummary(s, s.today, n);
+  const start = cycleStateOf(s).currentCycleStart;
+  const firstCycleDay = period === 'cycle' && start ? diffDays(start, w.start) + 1 : null;
   // Energy chart: daily for a week, weekly averages for longer periods.
   const bars =
     period === 'weekly'
-      ? days.map((d) => ({ label: formatDate(d, 'weekday'), value: checkInOn(s, d)?.energy ?? null }))
-      : Array.from({ length: Math.ceil(days.length / 7) }, (_, i) => {
-          const chunk = days.slice(i * 7, i * 7 + 7);
-          const e = avg(chunk.map((d) => checkInOn(s, d)?.energy).filter((x): x is number => typeof x === 'number'));
-          return { label: period === 'cycle' ? `D${i * 7 + 1}` : `W${i + 1}`, value: e === null ? null : Math.round(e * 10) / 10 };
+      ? w.days.map((d) => ({ label: d.label, value: d.energy }))
+      : Array.from({ length: Math.ceil(w.days.length / 7) }, (_, i) => {
+          const e = avg(
+            w.days
+              .slice(i * 7, i * 7 + 7)
+              .map((d) => d.energy)
+              .filter((x): x is number => typeof x === 'number'),
+          );
+          return { label: firstCycleDay !== null ? `D${firstCycleDay + i * 7}` : `W${i + 1}`, value: e === null ? null : Math.round(e * 10) / 10 };
         });
-  return {
-    start: days[0],
-    end: days[days.length - 1],
-    count: days.length,
-    cycleDay: w.cycleDay,
-    steps: days.reduce((a, d) => a + stepsOn(s, d), 0),
-    workouts: days.reduce((a, d) => a + workoutsOn(s, d).length, 0),
-    avgSleep,
-    hydrationPct: Math.round(hydration * 100),
-    moodSummary: !checks.length ? 'Not enough check-ins' : positive / checks.length >= 0.6 ? 'Mostly positive' : positive / checks.length >= 0.35 ? 'Mixed' : 'Mostly low',
-    avgEnergy: energy === null ? null : Math.round(energy * 10) / 10,
-    checkIns: checks.length,
-    pattern: w.pattern,
-    focus: w.focus,
-    bars,
-    stepBars: w.days.map((d) => ({ label: d.label, value: d.steps })),
-  };
+  return { ...w, count: n, bars, stepBars: w.days.map((d) => ({ label: d.label, value: d.steps })) };
 }
 
 const TITLE: Record<ReportPeriod, string> = { weekly: 'Your weekly wellness', monthly: 'Your last 30 days', cycle: 'This cycle so far' };
@@ -87,33 +59,45 @@ export function WeeklyReport({ period = 'weekly' }: { period?: ReportPeriod }) {
   const r = useMemo(() => summarize(state, period), [state, period]);
   const sleepText = r.avgSleep !== null ? `${Math.floor(r.avgSleep)}h ${Math.round((r.avgSleep % 1) * 60)}m` : '—';
   const stepsText = r.steps >= 100000 ? `${Math.round(r.steps / 1000)}k` : r.steps.toLocaleString();
-  return (
-    <View>
-      <HeroPanel>
-        <AppText variant="overline" color={ON_DARK.soft}>
-          {formatDate(r.start, 'short')} – {formatDate(r.end, 'short')} · {r.count} days
-        </AppText>
-        <AppText variant="title" color="#fff" style={{ marginTop: 4 }}>
-          {TITLE[period]}
-        </AppText>
-        <View style={styles.checkRow}>
-          <View style={styles.checkBar}>
-            <View style={[styles.checkFill, { width: `${Math.min(100, (r.checkIns / Math.max(1, r.count)) * 100)}%` }]} />
-          </View>
-          <AppText variant="smallMedium" color={ON_DARK.text}>
-            {r.checkIns}/{r.count} check-ins
-          </AppText>
-        </View>
-      </HeroPanel>
+  // Phases are estimates (the menstrual phase comes from logged period days), same marker as cycleText.
+  const phaseLabel = r.phase ? `${PHASES[r.phase].short}${r.phase === 'menstrual' ? '' : '*'}` : null;
+  const cycleLine = r.cycleDay ? `Cycle · Day ${r.cycleDay}${phaseLabel ? ` · ${phaseLabel}` : ''}` : null;
 
+  const hero = (
+    <HeroPanel>
+      <AppText variant="overline" color={ON_DARK.soft}>
+        {formatDate(r.start, 'short')} – {formatDate(r.end, 'short')} · {r.count} days
+      </AppText>
+      <AppText variant="title" color="#fff" style={{ marginTop: 4 }}>
+        {TITLE[period]}
+      </AppText>
+      {cycleLine ? (
+        <AppText variant="smallMedium" color={ON_DARK.text} style={{ marginTop: 2 }}>
+          {cycleLine}
+        </AppText>
+      ) : null}
+      <View style={styles.checkRow}>
+        <View style={styles.checkBar}>
+          <View style={[styles.checkFill, { width: `${Math.min(100, (r.checkIns / Math.max(1, r.count)) * 100)}%` }]} />
+        </View>
+        <AppText variant="smallMedium" color={ON_DARK.text}>
+          {r.checkIns}/{r.count} check-ins
+        </AppText>
+      </View>
+    </HeroPanel>
+  );
+
+  const body = (
+    <>
       <View style={styles.grid}>
-        <StatCardB compact icon={CalendarHeart} tone="rose" label="Cycle" value={r.cycleDay ? `Day ${r.cycleDay}` : '—'} style={styles.cell} />
+        <StatCardB compact icon={CalendarHeart} tone="rose" label="Cycle" value={r.cycleDay ? `Day ${r.cycleDay}` : '—'} sub={phaseLabel ?? undefined} style={styles.cell} />
         <StatCardB compact icon={Footprints} tone="green" label="Steps" value={stepsText} style={styles.cell} />
         <StatCardB compact icon={Dumbbell} tone="peach" label="Workouts" value={String(r.workouts)} style={styles.cell} />
         <StatCardB compact icon={Moon} tone="indigo" label="Sleep avg" value={sleepText} style={styles.cell} />
         <StatCardB compact icon={Droplets} tone="sky" label="Hydration" value={`${r.hydrationPct}%`} style={styles.cell} />
         <StatCardB compact icon={Smile} tone="lavender" label="Mood" value={r.moodSummary} style={styles.cell} />
       </View>
+      {phaseLabel?.endsWith('*') ? <EstimateNote compact style={{ marginTop: 10 }} text={`${COPY.estimate} ${COPY.ovulationNotConfirmed}`} /> : null}
 
       <GroupHeader eyebrow={`Average ${r.avgEnergy ?? '—'}/10`} title={period === 'weekly' ? 'Energy this week' : 'Average energy'} />
       <Card>
@@ -169,6 +153,30 @@ export function WeeklyReport({ period = 'weekly' }: { period?: ReportPeriod }) {
           </AppText>
         </View>
       </View>
+    </>
+  );
+
+  if (period === 'weekly') {
+    return (
+      <View>
+        {hero}
+        {body}
+      </View>
+    );
+  }
+  return (
+    <View>
+      <PremiumGate
+        feature="advanced_reports"
+        preview={
+          <>
+            {hero}
+            <View style={{ height: 14 }} />
+          </>
+        }>
+        {hero}
+        {body}
+      </PremiumGate>
     </View>
   );
 }
@@ -185,4 +193,3 @@ const styles = StyleSheet.create({
   focusIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.butter[400], alignItems: 'center', justifyContent: 'center' },
   ai: { flexDirection: 'row', gap: 10, marginTop: 16, padding: 14, borderRadius: 20, backgroundColor: palette.butter[50], borderWidth: 1, borderColor: palette.butter[100] },
 });
-

@@ -1,4 +1,4 @@
-// Shared helpers for the HealthX web e2e scripts running against the real API (API mode).
+// Shared helpers for the HealthX web e2e scripts (public website, account links, theme) against the real API.
 // Base URL: --base=http://host:port, or BASE env, default the fork's Vite on :5181 (which proxies /api).
 import { chromium } from 'playwright-core';
 
@@ -51,25 +51,6 @@ export async function deleteDisposable({ email, password }) {
   if (l.status !== 200) return l.status;
   return (await api('DELETE', '/v1/me', { token: l.body.accessToken, body: { password, confirm: 'DELETE' } })).status;
 }
-
-/** Sign in through the real login form; resolves once the app has routed into /app or /onboarding. */
-export async function uiLogin(page, email, password = DEMO_PW) {
-  await page.goto(B + '/login');
-  await page.locator('#email').fill(email);
-  await page.locator('#password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
-  await page.waitForURL((u) => u.pathname.startsWith('/app') || u.pathname === '/onboarding', { timeout: 10000 });
-}
-
-/** Read the signed-in user's state from the server with the page's own session (no localStorage involved). */
-export const serverState = (page) =>
-  page.evaluate(async () => {
-    const r = await fetch('/api/v1/auth/refresh', { method: 'POST', headers: { 'X-Client': 'web' }, credentials: 'include' });
-    if (!r.ok) throw new Error(`refresh ${r.status}`);
-    const { accessToken } = await r.json();
-    const s = await fetch('/api/v1/me/state', { headers: { Authorization: `Bearer ${accessToken}` } });
-    return (await s.json()).state;
-  });
 
 /**
  * Test harness: PASS/FAIL steps, page errors, and every API response >= 400 (reported unless it matches an

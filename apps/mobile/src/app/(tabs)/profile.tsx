@@ -11,6 +11,7 @@ import { GroupHeader, LeafPair, MenuCard, MenuRow, StatCardB, ON_DARK } from '@/
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
 import { AppText } from '@/components/Text';
+import { useProfilePhoto } from '@/lib/profilePhoto';
 import { useStore } from '@/lib/store';
 import { colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
@@ -21,6 +22,7 @@ export default function ProfileTab() {
   const { state, auth } = useStore();
   const toast = useToast();
   const p = state.profile;
+  const photo = useProfilePhoto();
   const cs = cycleStateOf(state);
   const age = p.dob ? Math.floor(diffDays(p.dob, state.today) / 365.25) : null;
   const premium = p.plan === 'premium';
@@ -39,7 +41,9 @@ export default function ProfileTab() {
         </View>
         <View style={styles.archWrap}>
           <LeafPair size={150} style={{ left: -38, top: -18 }} />
-          {p.avatar ? (
+          {photo.uri ? (
+            <Photo source={{ uri: photo.uri }} shape="arch" radius={26} position="top" style={styles.arch} alt={`${p.name || 'Your'} profile photo`} />
+          ) : p.avatar ? (
             <Photo photo={p.avatar} shape="arch" radius={26} position="top" style={styles.arch} alt={`${p.name || 'Your'} profile photo`} />
           ) : (
             <View style={[styles.arch, styles.archFallback]}>
@@ -109,6 +113,13 @@ export default function ProfileTab() {
           <MenuRow icon={Palette} tone="lavender" title="Appearance" subtitle="Theme, accent colour & dark mode" onPress={() => router.push('/appearance' as never)} />
           <MenuRow icon={Globe} title="Preferences" subtitle={`${p.units === 'metric' ? 'Metric' : 'Imperial'} · ${p.language} · ${p.timezone}`} onPress={() => router.push('/preferences')} />
           <MenuRow icon={Bell} tone="sky" title="Notifications & reminders" subtitle={`${state.reminders.filter((r) => r.enabled).length} reminders on`} onPress={() => router.push('/notification-settings')} />
+          <MenuRow
+            icon={CalendarHeart}
+            tone="rose"
+            title="Cycle settings"
+            subtitle={state.cycleProfile.typicalCycleLength ? `${state.cycleProfile.typicalCycleLength}-day cycle · ${state.cycleProfile.typicalPeriodLength ?? '—'}-day period` : 'Typical cycle & period length'}
+            onPress={() => router.push('/cycle-settings')}
+          />
           <MenuRow icon={Flower2} tone="lavender" title="Life stage" subtitle={MODE_LABEL[p.mode]} right={<PhaseBadge phase={3} />} onPress={() => router.push('/life-stages')} />
           <MenuRow icon={Crown} tone="butter" title="Subscription" subtitle={premium ? 'Premium · active (demo)' : 'Free plan · see Premium'} right={<PhaseBadge phase={2} />} onPress={() => router.push('/premium')} last />
         </MenuCard>

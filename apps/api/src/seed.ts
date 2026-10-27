@@ -8,6 +8,7 @@
 import { createInitialState, todayISO } from '@healthx/shared';
 import { initialAdminState } from '@healthx/shared/admin';
 import { migrateLegacyAccounts } from './accounts';
+import { seedActivity } from './activity';
 import type { Config } from './config';
 import { hashPassword, newTotpSecret } from './crypto';
 import { Store } from './store';
@@ -71,7 +72,10 @@ export function seedStore(config: Config): Store {
         emailVerified: true,
       });
       const s = createInitialState(today);
-      store.userStates.set(d.id, { ...s, auth: { ...s.auth, signedIn: true, onboarded: true, email: d.email }, profile: { ...s.profile, id: d.id, name: d.name, email: d.email } });
+      const state = { ...s, auth: { ...s.auth, signedIn: true, onboarded: true, email: d.email }, profile: { ...s.profile, id: d.id, name: d.name, email: d.email } };
+      store.userStates.set(d.id, state);
+      // Their synthetic history also appears as activity, marked "seed" (not something a person did).
+      seedActivity(store, d.id, state);
     }
     // Staff: one account per seeded staff member; every active staff account is enrolled in MFA (D-33).
     for (const m of admin.staff) {

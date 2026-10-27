@@ -288,6 +288,8 @@ export function generateHistory(today: ISODate, now = new Date()): GeneratedHist
       habit: { enabled: true, time: '20:00' },
       hydration: { enabled: true, time: '11:00' },
       workout: { enabled: true, time: '07:00' },
+      sleep: { enabled: false, time: '22:00' },
+      appointment: { enabled: true, time: '09:00' },
       content: { enabled: false, time: '18:00' },
       report: { enabled: true, time: '09:30' },
     },
@@ -305,9 +307,9 @@ export function generateHistory(today: ISODate, now = new Date()): GeneratedHist
   ];
 
   const consents: Consent[] = [
-    { id: 'health_processing', label: 'Health data processing', description: 'Store and process the cycle and wellness data you log so the app can work. Required.', required: true, granted: true, version: 'v1.0', updatedAt: profile.memberSince },
+    { id: 'health_processing', label: 'Health data processing', description: 'Store and process the cycle and wellness data you log so the app can work — including a log of when you sign in and save records (not their values), kept for support and security. Required.', required: true, granted: true, version: 'v1.0', updatedAt: profile.memberSince },
     { id: 'notifications', label: 'Reminders & notifications', description: 'Send the reminders you choose. You control each type in Notification settings.', required: false, granted: true, version: 'v1.0', updatedAt: profile.memberSince },
-    { id: 'analytics', label: 'Product analytics', description: 'Share anonymous usage events (never your health values) to help us improve.', required: false, granted: true, version: 'v1.0', updatedAt: profile.memberSince },
+    { id: 'analytics', label: 'Product analytics', description: 'Share app-usage events — which screens and features you use, never your health values — to help us improve and to help support with your account.', required: false, granted: true, version: 'v1.0', updatedAt: profile.memberSince },
     { id: 'ai_personalization', label: 'AI personalisation', description: 'Let the AI coach use your logs to personalise suggestions. Phase 2/3 feature.', required: false, granted: false, version: 'v1.0', updatedAt: profile.memberSince },
     { id: 'health_integrations', label: 'Health integrations', description: 'Import steps, sleep and workouts from Apple Health or Health Connect. Phase 2 feature.', required: false, granted: false, version: 'v1.0', updatedAt: profile.memberSince },
   ];

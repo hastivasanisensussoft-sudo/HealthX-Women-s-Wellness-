@@ -3,21 +3,17 @@ import { ArrowRight, HeartHandshake, LogOut } from 'lucide-react';
 import { LeafPair, Logo } from '@/components/brand/Brand';
 import { Photo } from '@/components/media/Photo';
 import { Button, ButtonLink } from '@/components/ui';
-import { useDispatch } from '@/store/AppStore';
 import { useAdmin } from '../adminState';
 import { SecurityNote } from '../components';
 
 /** Shown to End Users (SRS §6.1) who reach the admin area. */
 export default function NoAccess({ name, onBack }: { name?: string; onBack?: () => void }) {
-  const { state, apiMode, signOut } = useAdmin();
-  const appDispatch = useDispatch();
+  const { state, signOut } = useAdmin();
   const nav = useNavigate();
   const who = name ?? state.session?.name;
   const leave = async () => {
     if (onBack) return onBack();
     await signOut();
-    // Offline demo only: the user app mirrors the demo role locally. With the API, roles come from the server.
-    if (!apiMode) appDispatch({ type: 'SET_ROLE', role: 'user' });
     nav('/admin/login');
   };
   return (
@@ -37,7 +33,7 @@ export default function NoAccess({ name, onBack }: { name?: string; onBack?: () 
               This area is for HealthX staff. {who ? `${who.split(' ')[0]}, your` : 'Your'} wellness dashboard, cycle tracking and privacy settings are all in the HealthX app.
             </p>
             <div className="mt-7 flex flex-col gap-2 sm:flex-row">
-              <ButtonLink to="/app" rightIcon={<ArrowRight className="h-4 w-4" />}>
+              <ButtonLink to="/get-the-app" rightIcon={<ArrowRight className="h-4 w-4" />}>
                 Go to the HealthX app
               </ButtonLink>
               <Button variant="outline" leftIcon={<LogOut className="h-4 w-4" />} onClick={() => void leave()}>

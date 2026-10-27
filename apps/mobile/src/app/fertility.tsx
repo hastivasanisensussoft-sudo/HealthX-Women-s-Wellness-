@@ -1,8 +1,8 @@
 /** Fertility awareness — Phase 3 preview (SRS §20, §21). User-entered observations only; never "confirmed ovulation", never contraception. */
-import { COPY, addDays, cycleStateOf, formatDate, lastNDays, weekdayInitial, type FertilityLog } from '@healthx/shared';
+import { COPY, addDays, cycleStateOf, formatDate, lastNDays, weekdayInitial, type FertilityLog, type ISODate } from '@healthx/shared';
 import { CircleAlert, ClipboardList, Flower2, ShieldAlert, Thermometer } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { BackendNote, EstimateNote, PhaseBadge, Pill } from '@/components/Badges';
 import { Button } from '@/components/Button';
@@ -29,19 +29,69 @@ const TESTS: { key: NonNullable<FertilityLog['ovulationTest']>; label: string }[
   { key: 'positive', label: 'Positive' },
   { key: 'not_sure', label: 'Not sure' },
 ];
+/** Marker colour per mucus observation in the 21-day trend. */
+const MUCUS_COLOR: Record<NonNullable<FertilityLog['mucus']>, string> = {
+  dry: palette.ink[400],
+  sticky: palette.butter[500],
+  creamy: palette.peach[400],
+  watery: palette.sky[400],
+  egg_white: palette.indigo[500],
+};
+/** How many past days (including today) can be logged or edited here. */
+const LOG_DAYS = 14;
+const TREND_DAYS = 21;
+
+const dayChipLabel = (d: ISODate, today: ISODate) => (d === today ? 'Today' : d === addDays(today, -1) ? 'Yesterday' : `${formatDate(d, 'weekday')} ${Number(d.slice(8, 10))}`);
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** BBT chart range that fits the logged values (at least 0.4 °C tall, whole tenths), with three guide lines. */
+function bbtScale(values: number[]) {
+  if (!values.length) return { min: 36, max: 36.8, ticks: [36.2, 36.4, 36.6] };
+  let min = Math.floor((Math.min(...values) - 0.1) * 10) / 10;
+  let max = Math.ceil((Math.max(...values) + 0.1) * 10) / 10;
+  if (max - min < 0.4) {
+    const mid = (min + max) / 2;
+    min = Math.floor((mid - 0.2) * 10) / 10;
+    max = round2(min + 0.4);
+  }
+  min = round2(min);
+  max = round2(max);
+  const span = max - min;
+  return { min, max, ticks: [0.25, 0.5, 0.75].map((f) => round2(min + span * f)) };
+}
 
 export default function Fertility() {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const cs = useMemo(() => cycleStateOf(state), [state]);
-  const existing = state.fertility.find((f) => f.date === state.today);
+  const logOn = (d: ISODate) => state.fertility.find((f) => f.date === d);
+  const [date, setDate] = useState<ISODate>(state.today);
+  const existing = logOn(date);
   const [bbt, setBbt] = useState(existing?.bbtCelsius ? String(existing.bbtCelsius) : '');
   const [mucus, setMucus] = useState<FertilityLog['mucus']>(existing?.mucus);
   const [test, setTest] = useState<FertilityLog['ovulationTest']>(existing?.ovulationTest);
   const [error, setError] = useState<string | null>(null);
 
-  const series = lastNDays(state.today, 21).map((d) => ({ label: formatDate(d, 'short').split(' ')[1] ?? d.slice(8), value: state.fertility.find((f) => f.date === d)?.bbtCelsius ?? null }));
+  const isToday = date === state.today;
+  const logDays = Array.from({ length: LOG_DAYS }, (_, i) => addDays(state.today, -i));
+  const trendDays = lastNDays(state.today, TREND_DAYS);
+  const series = trendDays.map((d) => ({ label: formatDate(d, 'short').split(' ')[1] ?? d.slice(8), value: logOn(d)?.bbtCelsius ?? null }));
+  const scale = bbtScale(series.map((p) => p.value).filter((v): v is number => v !== null));
+  const trend = trendDays.map((d) => ({ d, log: logOn(d) }));
+  const mucusDays = trend.filter((t) => t.log?.mucus).length;
+  const testDays = trend.filter((t) => t.log?.ovulationTest).length;
+  const positiveDays = trend.filter((t) => t.log?.ovulationTest === 'positive').length;
   const history = [...state.fertility].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 7);
+
+  /** Switch the day being logged and load what was already logged for it. */
+  const pickDay = (d: ISODate) => {
+    const l = logOn(d);
+    setDate(d);
+    setBbt(l?.bbtCelsius ? String(l.bbtCelsius) : '');
+    setMucus(l?.mucus);
+    setTest(l?.ovulationTest);
+    setError(null);
+  };
 
   const save = () => {
     let temp: number | undefined;
@@ -51,8 +101,8 @@ export default function Fertility() {
     }
     if (!temp && !mucus && !test) return setError('Add at least one observation.');
     setError(null);
-    dispatch({ type: 'LOG_FERTILITY', log: { date: state.today, bbtCelsius: temp, mucus, ovulationTest: test } });
-    toast('Observations saved');
+    dispatch({ type: 'LOG_FERTILITY', log: { date, bbtCelsius: temp, mucus, ovulationTest: test } });
+    toast(`Observations saved for ${isToday ? 'today' : formatDate(date, 'short')}`);
   };
 
   return (
@@ -136,13 +186,86 @@ export default function Fertility() {
 
       <SectionHeader eyebrow="Last 21 days · °C" title="Basal body temperature" />
       <Card>
-        <LineChart data={series} color={palette.lavender[500]} min={36} max={36.8} yTicks={[36.2, 36.4, 36.6]} dots />
+        <LineChart data={series} color={palette.lavender[500]} min={scale.min} max={scale.max} yTicks={scale.ticks} dots />
         <AppText variant="caption" muted style={{ marginTop: 4 }}>
-          °C, last 21 days · trends you log are shown as-is and are not interpreted as ovulation.
+          °C, last 21 days · scale {scale.min.toFixed(1)}–{scale.max.toFixed(1)} °C, fitted to what you logged · trends are shown as-is and are not interpreted as ovulation.
         </AppText>
       </Card>
 
-      <SectionHeader eyebrow="Your observations" title="Log today" />
+      <SectionHeader eyebrow="Last 21 days" title="Mucus & test results" />
+      <Card>
+        <View accessible accessibilityLabel={`Last 21 days: cervical mucus logged on ${mucusDays} days, ovulation test logged on ${testDays} days, ${positiveDays} entered as positive. These are your observations, not a confirmation of ovulation.`}>
+          <View style={styles.trendRow}>
+            <AppText variant="caption" color={palette.ink[700]} style={styles.trendLabel}>
+              Mucus
+            </AppText>
+            <View style={styles.cells}>
+              {trend.map(({ d, log }) => (
+                <View key={d} style={[styles.cell, d === state.today && styles.cellToday]}>
+                  {log?.mucus ? <View style={[styles.mark, { backgroundColor: MUCUS_COLOR[log.mucus] }]} /> : <View style={styles.noMark} />}
+                </View>
+              ))}
+            </View>
+          </View>
+          <View style={styles.trendRow}>
+            <AppText variant="caption" color={palette.ink[700]} style={styles.trendLabel}>
+              Test
+            </AppText>
+            <View style={styles.cells}>
+              {trend.map(({ d, log }) => (
+                <View key={d} style={[styles.cell, d === state.today && styles.cellToday]}>
+                  <TestMark result={log?.ovulationTest} />
+                </View>
+              ))}
+            </View>
+          </View>
+          <View style={styles.trendRow}>
+            <View style={styles.trendLabel} />
+            <View style={styles.cells}>
+              {trend.map(({ d }, i) => (
+                <View key={d} style={styles.cell}>
+                  {(TREND_DAYS - 1 - i) % 7 === 0 ? (
+                    <AppText variant="caption" color={d === state.today ? palette.lavender[700] : colors.textSubtle} style={{ fontSize: 9.5, lineHeight: 12 }} numberOfLines={1}>
+                      {Number(d.slice(8, 10))}
+                    </AppText>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.trendLegend}>
+          {MUCUS.map((m) => (
+            <View key={m.key} style={styles.legendItem}>
+              <View style={[styles.mark, { backgroundColor: MUCUS_COLOR[m.key] }]} />
+              <AppText variant="caption" muted>
+                {m.label}
+              </AppText>
+            </View>
+          ))}
+        </View>
+        <View style={[styles.trendLegend, { marginTop: 6 }]}>
+          {TESTS.map((t) => (
+            <View key={t.key} style={styles.legendItem}>
+              <TestMark result={t.key} />
+              <AppText variant="caption" muted>
+                Test: {t.label.toLowerCase()}
+              </AppText>
+            </View>
+          ))}
+        </View>
+        <AppText variant="caption" muted style={{ marginTop: 10 }}>
+          Observations you entered, shown day by day. They are not a confirmation of ovulation and not a form of contraception.
+        </AppText>
+      </Card>
+
+      <SectionHeader eyebrow="Your observations" title={isToday ? 'Log today' : `Log for ${formatDate(date, 'short')}`} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow} style={{ marginHorizontal: -20, marginBottom: 10 }}>
+        {logDays.map((d) => (
+          <Chip key={d} label={dayChipLabel(d, state.today)} tone="lavender" selected={date === d} icon={logOn(d) ? <View style={styles.loggedDot} /> : undefined} onPress={() => pickDay(d)} />
+        ))}
+      </ScrollView>
       <Card style={{ gap: 18 }}>
         <TextField
           label="Basal temperature (°C)"
@@ -172,6 +295,11 @@ export default function Fertility() {
             Test results are what you entered — HealthX doesn’t confirm ovulation.
           </AppText>
         </View>
+        {existing ? (
+          <AppText variant="caption" muted>
+            You already logged this day — saving replaces that entry.
+          </AppText>
+        ) : null}
         {error ? (
           <View style={styles.error}>
             <CircleAlert size={14} color={colors.danger} />
@@ -209,6 +337,19 @@ export default function Fertility() {
   );
 }
 
+/** Small marker for an entered ovulation-test result: filled = positive, ring = negative, "?" = not sure. */
+function TestMark({ result }: { result?: FertilityLog['ovulationTest'] }) {
+  if (result === 'positive') return <View style={[styles.mark, { backgroundColor: palette.lavender[600] }]} />;
+  if (result === 'negative') return <View style={[styles.mark, styles.ring]} />;
+  if (result === 'not_sure')
+    return (
+      <AppText variant="caption" color={palette.lavender[700]} style={styles.unsure}>
+        ?
+      </AppText>
+    );
+  return <View style={styles.noMark} />;
+}
+
 const styles = StyleSheet.create({
   safety: { flexDirection: 'row', gap: 12, backgroundColor: palette.rose[50], borderWidth: 1.5, borderColor: palette.rose[200], borderRadius: 24, padding: 16 },
   safetyIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
@@ -228,4 +369,17 @@ const styles = StyleSheet.create({
   legend: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   swatch: { width: 12, height: 12, borderRadius: 6 },
   error: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dayRow: { gap: 8, paddingVertical: 4, paddingHorizontal: 20 },
+  loggedDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.lavender[500] },
+  trendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  trendLabel: { width: 44 },
+  cells: { flex: 1, flexDirection: 'row' },
+  cell: { flex: 1, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
+  cellToday: { backgroundColor: palette.lavender[50] },
+  mark: { width: 9, height: 9, borderRadius: 5 },
+  ring: { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: palette.ink[400] },
+  noMark: { width: 3, height: 3, borderRadius: 2, backgroundColor: palette.ink[200] },
+  unsure: { fontSize: 10, lineHeight: 12, fontFamily: font.bold },
+  trendLegend: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 6, marginTop: 12 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 });

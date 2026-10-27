@@ -54,7 +54,11 @@ export function CycleRing({ state, size = 300, children, labels = true }: { stat
   };
 
   return (
-    <View style={{ width: size, height: size }} accessibilityLabel={`Cycle ring, day ${state.cycleDay ?? 'unknown'} of an estimated ${L}-day cycle`}>
+    <View
+      style={{ width: size, height: size }}
+      accessibilityLabel={
+        state.avgCycleLength ? `Cycle ring, day ${state.cycleDay ?? 'unknown'} of an estimated ${state.avgCycleLength}-day cycle` : `Cycle ring, day ${state.cycleDay ?? 'unknown'}. Cycle length not estimated yet`
+      }>
       <Svg width={size} height={size}>
         <Defs>
           <LinearGradient id="ringPeriod" x1="0" y1="0" x2="1" y2="1">

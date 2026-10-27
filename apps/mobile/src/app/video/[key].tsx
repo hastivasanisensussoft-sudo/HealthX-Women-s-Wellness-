@@ -15,6 +15,7 @@ import { Photo } from '@/components/Photo';
 import { AppText } from '@/components/Text';
 import { posterSource, VIDEO_CATEGORY_LABEL, videoSource } from '@/lib/media';
 import { brandText, colors, font, palette } from '@/lib/theme';
+import { track } from '@/lib/track';
 
 type Status = 'loading' | 'ready' | 'error';
 
@@ -29,6 +30,10 @@ export default function VideoScreen() {
     if (src) p.play();
   });
   const [status, setStatus] = useState<Status>(src ? 'loading' : 'error');
+
+  useEffect(() => {
+    if (key) track('video_played', key);
+  }, [key]);
 
   useEffect(() => {
     const sub = player.addListener('statusChange', ({ status: s }) => setStatus(s === 'error' ? 'error' : s === 'readyToPlay' ? 'ready' : 'loading'));

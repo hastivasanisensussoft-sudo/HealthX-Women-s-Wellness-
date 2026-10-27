@@ -1,13 +1,15 @@
 /** Wellness report (SRS §36, mockup M30) with the weekly / monthly / cycle scopes. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Segmented } from '@/components/Inputs';
 import { Screen } from '@/components/Screen';
 import { WeeklyReport, type ReportPeriod } from '@/components/WeeklyReport';
 import { PageIntro } from '@/components/b-kit';
+import { track } from '@/lib/track';
 
 export default function WeeklyReportScreen() {
   const [period, setPeriod] = useState<ReportPeriod>('weekly');
+  useEffect(() => track('weekly_report_viewed'), []);
   return (
     <Screen back>
       <PageIntro eyebrow="Rules-based summary" title="Weekly report" subtitle="What you logged, summarised — observed patterns, never a diagnosis." />

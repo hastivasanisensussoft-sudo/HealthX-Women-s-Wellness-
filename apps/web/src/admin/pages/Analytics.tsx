@@ -8,10 +8,14 @@ import { analyticsSeries, DELIVERY_STATS, EVENT_CATALOGUE, MRR_SERIES, RETENTION
 import { useAccess, useAdmin } from '../adminState';
 import { AdminHeader, AdminHero, HeroStat, KpiCard, SimulatedNote, TableShell, Th } from '../components';
 import { downloadCsv } from '../helpers';
+import { useActivitySummary } from '../appActivity';
+import { CategoryBars, DataSourceBadge } from '../activityUi';
+import { formatDate } from '@healthx/shared';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 const SECTIONS = [
+  { id: 'an-live', label: 'Live app activity' },
   { id: 'an-acquisition', label: 'Acquisition' },
   { id: 'an-activation', label: 'Activation' },
   { id: 'an-engagement', label: 'Engagement' },
@@ -42,6 +46,70 @@ function ReportSection({ id, n, eyebrow, title, badge, children }: { id: string;
       </div>
       {children}
     </section>
+  );
+}
+
+const share = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—');
+
+/** KPIs computed from what people actually did in the mobile app (API mode), or the labelled simulation offline. */
+function LiveReport() {
+  const { state, apiMode, audit } = useAdmin();
+  const { can } = useAccess();
+  const toast = useToast();
+  const { data: s, loading } = useActivitySummary(state.users, 30);
+  const exportLive = () => {
+    if (!s) return;
+    downloadCsv(
+      'healthx-live-app-activity-30d.csv',
+      ['date', 'active_users', 'events'],
+      s.series.map((d) => [d.date, d.activeUsers, d.events]),
+    );
+    audit('report.export', 'Live app activity (30 days)', 'Aggregate only');
+    toast.success('Report exported', 'Daily active users and activity counts — no individual data.');
+  };
+  return (
+    <ReportSection id="an-live" n={0} eyebrow="Live app activity" title="What people did in the mobile app" badge={<DataSourceBadge apiMode={apiMode} />}>
+      {loading || !s ? (
+        <CardSkeleton lines={4} />
+      ) : (
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+          <Card className="card-pad">
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {(
+                [
+                  ['Active today', s.engagement.dau],
+                  ['This week', s.engagement.wau],
+                  ['This month', s.engagement.mau],
+                  ['New (30 days)', s.users.new30],
+                ] as const
+              ).map(([l, v]) => (
+                <div key={l} className="rounded-2xl bg-ink-50/70 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-ink-500">{l}</p>
+                  <p className="num mt-1 text-[22px] text-ink-900">{fmt(v)}</p>
+                </div>
+              ))}
+            </div>
+            <AreaTrend data={s.series.map((d) => ({ label: formatDate(d.date, 'dayMonth'), active: d.activeUsers }))} series={[{ key: 'active', name: 'Active users', color: cv('green', 500) }]} height={200} />
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-ink-500">
+              <span>
+                Onboarding {share(s.activation.onboarded, s.activation.registered)} · first period {share(s.activation.firstPeriod, s.activation.registered)} · first check-in {share(s.activation.firstCheckIn, s.activation.registered)} · day-7 retention{' '}
+                {s.retention.d7 ? share(s.retention.d7.retained, s.retention.d7.cohort) : '—'} · trials {s.monetization.trialsStarted}
+                {s.seedEvents > 0 ? ` · includes ${fmt(s.seedEvents)} seeded-history events` : ''}
+              </span>
+              {can('export_reports') && (
+                <Button variant="outline" size="sm" leftIcon={<Download className="h-4 w-4" />} onClick={exportLive}>
+                  Export CSV
+                </Button>
+              )}
+            </div>
+          </Card>
+          <Card className="card-pad">
+            <CardHeader title="Module usage" subtitle="Activity per module, last 30 days" icon={<Activity className="h-5 w-5" />} />
+            <CategoryBars byCategory={s.byCategory} limit={9} />
+          </Card>
+        </div>
+      )}
+    </ReportSection>
   );
 }
 
@@ -148,6 +216,8 @@ export function AnalyticsReport() {
           </button>
         ))}
       </nav>
+
+      <LiveReport />
 
       <ReportSection id="an-acquisition" n={1} eyebrow="Acquisition" title="Where new users come from">
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
@@ -351,7 +421,7 @@ export function AnalyticsReport() {
             </tbody>
           </TableShell>
           <p className="border-t border-ink-100 px-5 py-3.5 text-xs leading-relaxed text-ink-500">
-            Events carry only name, timestamp, pseudonymous ID, platform and app version — never flow, symptom names, mood/energy values, period dates, free text or AI question text — and are sent only with analytics consent.
+            Events carry only name, timestamp, pseudonymous ID, platform and app version — never flow, symptom names, mood/energy values, period dates, free text or AI question text. Account activity (sign-ins and which kind of record was saved) is kept for support and security; app-usage events (screens, videos, coach questions) are sent only with analytics consent.
           </p>
         </Card>
       </ReportSection>

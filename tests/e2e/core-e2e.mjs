@@ -66,8 +66,8 @@ await step('custom symptom: validation + create with default severity', async ()
   if (!def || def.defaultSeverity !== 'severe' || def.icon !== 'zap') throw new Error('custom symptom not stored correctly ' + JSON.stringify(def));
 });
 await step('symptom log right after creating it (no reload) uses the server id + default severity', async () => {
-  await page.waitForURL('**/symptoms', { timeout: 4000 });
-  await page.getByRole('button', { name: 'Jaw tension', exact: true }).first().click();
+  // Back on Symptoms with the new symptom already selected (?select=…), ready to log.
+  await page.waitForURL(/\/symptoms\?/, { timeout: 4000 });
   await page.getByText('Jaw tension — severity').waitFor({ timeout: 2000 });
   // No severity is chosen manually: a stored "severe" log proves the default was preselected.
   await page.getByText(/Save symptoms/).click();
@@ -89,6 +89,8 @@ await step('mood log: slider tap + factors + save', async () => {
   await go('/mood');
   await page.getByLabel('Good', { exact: true }).click();
   const slider = page.getByRole('adjustable', { name: 'Anxiety' }).or(page.getByLabel('Anxiety', { exact: true })).first();
+  // Stress and anxiety are optional (§14): the slider appears once "Add anxiety level" is on.
+  if (!(await slider.isVisible())) await page.getByLabel('Add anxiety level').click();
   const box = await slider.boundingBox();
   await page.mouse.click(box.x + box.width * 0.99, box.y + box.height / 2);
   await page.getByText('10 / 10').first().waitFor({ timeout: 2000 });

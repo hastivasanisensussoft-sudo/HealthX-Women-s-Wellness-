@@ -76,7 +76,7 @@ for (const i of [3]) {
   await page.getByRole('menuitem', { name: /View account/ }).click();
   await page.waitForTimeout(500);
   const detail = await page.locator('[role=dialog]').last().innerText();
-  ok(/Staff never see cycle, symptom, mood/.test(detail), `${ROLES[i]}: user detail states health data is hidden`);
+  ok(/Hidden by default/.test(detail) && /every grant and view is audited/.test(detail), `${ROLES[i]}: user detail states health records are hidden by default and access is audited`);
   ok(!HEALTH_VALUE.test(detail), `${ROLES[i]}: user detail shows no individual health values`);
   const bg = await page.getByRole('button', { name: 'Break-glass access' }).count();
   ok(bg === 1, `${ROLES[i]}: break-glass button available (demo Admin holds the break-glass permission; an Admin without it is checked in admin-api.mjs)`);

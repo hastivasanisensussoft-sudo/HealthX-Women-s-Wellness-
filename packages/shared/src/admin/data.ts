@@ -682,6 +682,9 @@ export interface Campaign {
   reach: number;
   delivered?: number;
   opened?: number;
+  /** How it was sent: in-app inbox delivery works without a push provider. */
+  channel?: 'in_app' | 'push';
+  sentAt?: string;
 }
 
 export const ANY_SEGMENT: CampaignSegment = { plan: 'any', countries: [], language: 'any', lastActive: 'any', appVersion: 'any' };

@@ -14,7 +14,8 @@ export { brandText, fertile, onDark };
 
 /**
  * Font family names registered in the root layout (React Native needs one family per weight):
- * DM Sans for body and UI, Outfit for display and headings, DM Mono for small labels.
+ * DM Sans for body and UI, Outfit for display and headings, DM Mono for small labels,
+ * Caveat for the handwritten lines on the Home hero.
  */
 export const font = {
   regular: 'DMSans_400Regular',
@@ -27,6 +28,8 @@ export const font = {
   displayMedium: 'Outfit_500Medium',
   mono: 'DMMono_400Regular',
   monoMedium: 'DMMono_500Medium',
+  hand: 'Caveat_600SemiBold',
+  handBold: 'Caveat_700Bold',
 } as const;
 
 export const shadow = nativeShadows;

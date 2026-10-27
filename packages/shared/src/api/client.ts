@@ -8,6 +8,8 @@
 import type { Action, AppState } from '../state';
 import type { AdminAction, AdminState } from '../admin/state';
 import type { PrivilegedCapability, StaffRole } from '../admin/rbac';
+import type { ActivityFeedEntry, ActivityPage, ActivitySummary, ContentEngagementRow, HealthAccessGrant, HealthRecordResponse, UserNoteView, UserOverview } from '../admin/appUsers';
+import type { UsageEvent } from '../activity';
 
 export class ApiError extends Error {
   constructor(
@@ -62,6 +64,13 @@ export interface ApiClientOptions {
   onSessionEnd?: () => void;
   fetchImpl?: typeof fetch;
 }
+
+/** Query string from defined values only. */
+const query = (o: Record<string, string | number | undefined>) =>
+  Object.entries(o)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&');
 
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -207,6 +216,8 @@ export class ApiClient {
   cancelSubscription = () => this.call<{ ok: true; plan: 'free' }>('POST', '/v1/me/subscription/cancel');
   loadSampleData = () => this.call<{ ok: true }>('POST', '/v1/me/data/sample');
   clearData = () => this.call<{ ok: true }>('POST', '/v1/me/data/clear');
+  /** App-usage events (recorded by the API only while the user's analytics consent is on). */
+  trackEvents = (events: { name: UsageEvent; detail?: string }[]) => this.call<{ ok: true; recorded: number; analyticsConsent: boolean }>('POST', '/v1/me/events', { events });
 
   // ---------- Web Admin (server enforces every permission) ----------
   async adminState(): Promise<AdminState> {
@@ -216,7 +227,16 @@ export class ApiClient {
     return (await this.call<{ state: AdminState }>('POST', '/v1/admin/actions', { action })).state;
   }
   revealEmail = (userId: string) => this.call<{ email: string }>('POST', `/v1/admin/users/${encodeURIComponent(userId)}/reveal-email`);
-  breakGlass = (userId: string, reason: string) => this.call<{ categories: { label: string; count: number }[]; expiresInSec: number; note?: string }>('POST', `/v1/admin/users/${encodeURIComponent(userId)}/break-glass`, { reason });
+  breakGlass = (userId: string, reason: string) => this.call<HealthAccessGrant>('POST', `/v1/admin/users/${encodeURIComponent(userId)}/break-glass`, { reason });
+  endHealthAccess = (userId: string) => this.call<void>('DELETE', `/v1/admin/users/${encodeURIComponent(userId)}/break-glass`);
+  healthRecord = (userId: string) => this.call<HealthRecordResponse>('GET', `/v1/admin/users/${encodeURIComponent(userId)}/health`);
+  userOverview = (userId: string) => this.call<{ overview: UserOverview }>('GET', `/v1/admin/users/${encodeURIComponent(userId)}/overview`);
+  userActivity = (userId: string, opts: { page?: number; size?: number; category?: string } = {}) =>
+    this.call<ActivityPage>('GET', `/v1/admin/users/${encodeURIComponent(userId)}/activity?${query(opts)}`);
+  addUserNote = (userId: string, text: string) => this.call<{ note: UserNoteView }>('POST', `/v1/admin/users/${encodeURIComponent(userId)}/notes`, { text });
+  activityFeed = (opts: { limit?: number; category?: string; source?: string } = {}) => this.call<{ events: ActivityFeedEntry[] }>('GET', `/v1/admin/activity?${query(opts)}`);
+  activitySummary = (days = 30) => this.call<{ summary: ActivitySummary }>('GET', `/v1/admin/activity/summary?days=${days}`);
+  contentEngagement = (days = 30) => this.call<{ days: number; rows: ContentEngagementRow[] }>('GET', `/v1/admin/content/engagement?days=${days}`);
 
   // ---------- public ----------
   health = () => this.raw<{ status: string; storage: string }>('GET', '/v1/health', undefined, false);

@@ -31,6 +31,7 @@ export const ADMIN_NAV: AdminNavSection[] = [
     icon: Users,
     children: [
       { to: '/admin/users', label: 'Users', caps: ['view_users'] },
+      { to: '/admin/activity', label: 'App activity', caps: ['view_users'] },
       { to: '/admin/support', label: 'Support requests', caps: ['manage_support'] },
       { to: '/admin/privacy-requests', label: 'Privacy requests', caps: ['process_data_requests'] },
     ],
@@ -45,6 +46,7 @@ export const ADMIN_NAV: AdminNavSection[] = [
       { to: '/admin/reviews', label: 'Review queue', caps: ['medical_review', 'compliance_review', 'edit_content'] },
       { to: '/admin/compliance', label: 'Compliance', caps: ['compliance_review'] },
       { to: '/admin/schedule', label: 'Publishing calendar', caps: ['publish_content', 'compliance_review'] },
+      { to: '/admin/plans', label: 'Daily plans', caps: ['view_content'] },
       { to: '/admin/media', label: 'Media library', caps: ['edit_content', 'publish_content'] },
       { to: '/admin/categories', label: 'Categories & tags', caps: ['edit_content', 'publish_content'] },
       { to: '/admin/versions', label: 'Version history', caps: ['view_content'] },
@@ -72,6 +74,7 @@ export const ADMIN_NAV: AdminNavSection[] = [
       { to: '/admin/config', label: 'Configuration', caps: ['manage_config'] },
       { to: '/admin/flags', label: 'Feature flags', caps: ['manage_flags'] },
       { to: '/admin/audit', label: 'Audit log', caps: ['view_audit'] },
+      { to: '/admin/appearance', label: 'Appearance', caps: ['admin_access'] },
       { to: '/admin/account', label: 'My account', caps: ['admin_access'] },
     ],
   },

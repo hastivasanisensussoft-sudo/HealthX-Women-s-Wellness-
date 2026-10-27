@@ -1,8 +1,8 @@
-/** Symptom log (SRS §14–§16, mockup M15; Myflo chip grid): category chips, symptoms, per-symptom severity, notes, history. */
-import { COPY, MOODS, SEVERITIES, SYMPTOM_CATEGORIES, formatDate, symptomFrequency, type ISODate, type Severity, type SymptomCategory } from '@healthx/shared';
+/** Symptom log (SRS §14–§16, mockup M15; Myflo chip grid): day picker, category chips, symptoms, per-symptom severity + note, notes, history. */
+import { COPY, MOODS, SEVERITIES, SYMPTOM_CATEGORIES, addDays, formatDate, symptomFrequency, type ISODate, type Severity, type SymptomCategory, type SymptomDef } from '@healthx/shared';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Archive, ClipboardList, Plus, Sparkles, Stethoscope, Trash2 } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { Archive, CalendarDays, ClipboardList, Plus, Sparkles, Stethoscope, Trash2 } from 'lucide-react-native';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { MoodFace } from '@/components/Art';
@@ -10,6 +10,7 @@ import { Pill } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card, SectionHeader } from '@/components/Card';
 import { BarChart } from '@/components/Charts';
+import { DateSheet } from '@/components/DateSheet';
 import { EmptyState } from '@/components/Feedback';
 import { Chip, Segmented, TextField } from '@/components/Inputs';
 import { Screen } from '@/components/Screen';
@@ -20,39 +21,105 @@ import { brandText, colors, font, palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 const SEV_TONE: Record<Severity, 'green' | 'peach' | 'rose'> = { mild: 'green', moderate: 'peach', severe: 'rose' };
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const NOTE_MAX = 300;
+
+/** A picked symptom, keyed by the id it had when picked. `label` finds it again if a server sync swaps that id. */
+type Picked = { severity: Severity; label: string; note: string };
+
+const dayChipLabel = (d: ISODate, today: ISODate) => (d === today ? 'Today' : d === addDays(today, -1) ? 'Yesterday' : `${formatDate(d, 'weekday')} ${Number(d.slice(8, 10))}`);
 
 export default function Symptoms() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, mode } = useStore();
   const toast = useToast();
-  const params = useLocalSearchParams<{ date?: string }>();
-  const date: ISODate = params.date && params.date <= state.today ? params.date : state.today;
+  const params = useLocalSearchParams<{ date?: string; select?: string }>();
+  const validDate = (d?: string): ISODate | null => (d && ISO_DATE.test(d) && d <= state.today ? d : null);
+  const [date, setDate] = useState<ISODate>(validDate(params.date) ?? state.today);
+  const [seenDateParam, setSeenDateParam] = useState(params.date);
   const [tab, setTab] = useState<'log' | 'history'>('log');
   const [cat, setCat] = useState<SymptomCategory>('physical');
-  const [selected, setSelected] = useState<Record<string, Severity>>({});
+  const [picked, setPicked] = useState<Record<string, Picked>>({});
   const [notes, setNotes] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [appliedSelect, setAppliedSelect] = useState<string | null>(null);
+  // A custom symptom created a moment ago keeps a temporary id until the server sync swaps in the
+  // server's id; a log sent with the temporary id would be refused, so saving waits for the swap.
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
+  // A new ?date= (e.g. coming back from "Create a custom symptom") moves the day being logged.
+  if (params.date !== seenDateParam) {
+    setSeenDateParam(params.date);
+    const d = validDate(params.date);
+    if (d) setDate(d);
+  }
+
+  // ?select=<label>: pick that symptom (with its default severity) once it is in the list — a new
+  // custom symptom can take a moment to arrive after a server sync.
+  const wanted = params.select?.trim().toLowerCase() || null;
+  if (wanted && wanted !== appliedSelect) {
+    const def = state.symptomDefs.find((d) => d.label.toLowerCase() === wanted);
+    if (def) {
+      setAppliedSelect(wanted);
+      if (mode === 'api' && def.custom) setSyncingId(def.id);
+      setPicked((s) => ({ ...s, [def.id]: { severity: def.defaultSeverity ?? 'mild', label: def.label, note: '' } }));
+      setCat(def.category);
+      setTab('log');
+    }
+  }
+
+  const isToday = date === state.today;
+  const recentDays = Array.from({ length: 7 }, (_, i) => addDays(state.today, -i));
   const defs = state.symptomDefs.filter((s) => s.category === cat);
   const customs = state.symptomDefs.filter((s) => s.custom);
   const todays = state.symptomLogs.filter((l) => l.date === date);
   const freq = useMemo(() => symptomFrequency(state, 60).slice(0, 7), [state]);
   const history = useMemo(() => [...state.symptomLogs].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 30), [state.symptomLogs]);
-  const count = Object.keys(selected).length;
   const labelOf = (id: string) => state.symptomDefs.find((s) => s.id === id)?.label ?? 'Archived symptom';
   const catLabel = SYMPTOM_CATEGORIES.find((c) => c.key === cat)?.label ?? '';
 
-  const toggle = (id: string) =>
-    setSelected((s) => {
+  // Picks resolved against the current symptom list: ids swapped by a sync are found by label,
+  // archived symptoms drop out, and each symptom appears once.
+  const chosen: (Picked & { key: string; def: SymptomDef })[] = [];
+  Object.entries(picked).forEach(([key, p]) => {
+    const def = state.symptomDefs.find((d) => d.id === key) ?? state.symptomDefs.find((d) => d.label.toLowerCase() === p.label.toLowerCase());
+    if (def && !chosen.some((c) => c.def.id === def.id)) chosen.push({ ...p, key, def });
+  });
+  const count = chosen.length;
+  const isPicked = (id: string) => chosen.some((c) => c.def.id === id);
+  const waitingFor = syncingId ? chosen.find((c) => c.def.id === syncingId) : undefined;
+  // Don't hold Save for long if the sync is slow or offline: after a few seconds, let it through.
+  useEffect(() => {
+    if (!syncingId) return;
+    const t = setTimeout(() => setSyncingId(null), 4000);
+    return () => clearTimeout(t);
+  }, [syncingId]);
+
+  const toggle = (def: SymptomDef) => {
+    const hit = chosen.find((c) => c.def.id === def.id);
+    setPicked((s) => {
       const n = { ...s };
-      if (n[id]) delete n[id];
-      else n[id] = state.symptomDefs.find((d) => d.id === id)?.defaultSeverity ?? 'mild';
+      if (hit) delete n[hit.key];
+      else n[def.id] = { severity: def.defaultSeverity ?? 'mild', label: def.label, note: '' };
       return n;
     });
+  };
+  const update = (key: string, patch: Partial<Picked>) => setPicked((s) => (s[key] ? { ...s, [key]: { ...s[key], ...patch } } : s));
+
+  const newCustom = () => router.push({ pathname: '/symptom-new', params: isToday ? { from: 'symptoms' } : { from: 'symptoms', date } });
 
   const save = () => {
     if (!count) return toast('Select at least one symptom', 'info');
-    dispatch({ type: 'LOG_SYMPTOMS', date, entries: Object.entries(selected).map(([symptomId, severity]) => ({ symptomId, severity })), notes: notes.trim() || undefined });
-    toast(`${count} symptom${count === 1 ? '' : 's'} logged for ${date === state.today ? 'today' : formatDate(date, 'short')}`);
-    setSelected({});
+    if (waitingFor) return toast(`Still adding “${waitingFor.def.label}” — one moment`, 'info');
+    const shared = notes.trim();
+    // One log per distinct note, so every symptom keeps its own note; a symptom's own note overrides the shared one.
+    const groups = new Map<string, { symptomId: string; severity: Severity }[]>();
+    chosen.forEach((c) => {
+      const note = c.note.trim() || shared;
+      groups.set(note, [...(groups.get(note) ?? []), { symptomId: c.def.id, severity: c.severity }]);
+    });
+    groups.forEach((entries, note) => dispatch({ type: 'LOG_SYMPTOMS', date, entries, notes: note || undefined }));
+    toast(`${count} symptom${count === 1 ? '' : 's'} logged for ${isToday ? 'today' : formatDate(date, 'short')}`);
+    setPicked({});
     setNotes('');
   };
 
@@ -60,14 +127,22 @@ export default function Symptoms() {
     <Screen
       back
       largeTitle
-      eyebrow={formatDate(date, 'long')}
+      eyebrow={`Logging for ${isToday ? 'today' : `${formatDate(date, 'weekday')}, ${formatDate(date, 'short')}`}`}
       title="Log Symptoms"
-      footer={tab === 'log' ? <Button label={count ? `Save symptoms (${count})` : 'Save symptoms'} size="lg" disabled={!count} onPress={save} full /> : undefined}>
+      footer={tab === 'log' ? <Button label={count ? `Save symptoms (${count})` : 'Save symptoms'} size="lg" disabled={!count || !!waitingFor} onPress={save} full /> : undefined}>
       <Segmented value={tab} onChange={setTab} options={[{ key: 'log', label: 'Log' }, { key: 'history', label: 'History & trends' }]} />
 
       {tab === 'log' ? (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow} accessibilityRole="tablist" style={{ marginHorizontal: -20 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow} style={{ marginHorizontal: -20 }}>
+            {recentDays.map((d) => (
+              <Chip key={d} label={dayChipLabel(d, state.today)} selected={date === d} onPress={() => setDate(d)} />
+            ))}
+            {!recentDays.includes(date) ? <Chip label={formatDate(date, 'short')} selected onPress={() => setPickerOpen(true)} /> : null}
+            <Chip label="Pick a date" icon={<CalendarDays size={15} color={palette.green[700]} />} onPress={() => setPickerOpen(true)} />
+          </ScrollView>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.catRow, { marginTop: 6 }]} accessibilityRole="tablist" style={{ marginHorizontal: -20 }}>
             {SYMPTOM_CATEGORIES.map((c) => (
               <Chip key={c.key} label={c.label} variant="solid" selected={cat === c.key} onPress={() => setCat(c.key)} />
             ))}
@@ -86,9 +161,9 @@ export default function Symptoms() {
             </View>
             <View style={styles.wrap}>
               {defs.map((s) => (
-                <Chip key={s.id} label={s.label} tone="rose" selected={!!selected[s.id]} icon={<KeyIcon name={s.icon} size={15} color={palette.rose[600]} />} onPress={() => toggle(s.id)} />
+                <Chip key={s.id} label={s.label} tone="rose" selected={isPicked(s.id)} icon={<KeyIcon name={s.icon} size={15} color={palette.rose[600]} />} onPress={() => toggle(s)} />
               ))}
-              <Pressable accessibilityRole="button" accessibilityLabel="Create a custom symptom" onPress={() => router.push('/symptom-new')} style={({ pressed }) => [styles.customChip, pressed && { backgroundColor: palette.green[50] }]}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Create a custom symptom" onPress={newCustom} style={({ pressed }) => [styles.customChip, pressed && { backgroundColor: palette.green[50] }]}>
                 <Plus size={14} color={palette.green[700]} />
                 <AppText variant="smallMedium" color={palette.green[700]}>
                   Custom symptom
@@ -107,16 +182,38 @@ export default function Symptoms() {
               <AppText variant="overline" color={palette.green[700]}>
                 How strong?
               </AppText>
-              {Object.keys(selected).map((id) => (
-                <View key={id} style={{ gap: 8 }}>
-                  <AppText variant="h3">{labelOf(id)} — severity</AppText>
-                  <Segmented tone={SEV_TONE[selected[id]]} value={selected[id]} onChange={(v) => setSelected({ ...selected, [id]: v })} options={SEVERITIES.map((s) => ({ key: s.key, label: s.label }))} />
+              {waitingFor ? (
+                <AppText variant="caption" muted>
+                  Adding “{waitingFor.def.label}” to your account…
+                </AppText>
+              ) : null}
+              {chosen.map((c) => (
+                <View key={c.key} style={{ gap: 8 }}>
+                  <AppText variant="h3">{c.def.label} — severity</AppText>
+                  <Segmented tone={SEV_TONE[c.severity]} value={c.severity} onChange={(v) => update(c.key, { severity: v })} options={SEVERITIES.map((s) => ({ key: s.key, label: s.label }))} />
+                  <TextField
+                    label={`${c.def.label} note (optional)`}
+                    value={c.note}
+                    onChangeText={(v) => update(c.key, { note: v })}
+                    maxLength={NOTE_MAX}
+                    placeholder={notes.trim() ? 'Uses the shared note below' : 'e.g. Worse in the morning'}
+                    hint={c.note ? `${c.note.length}/${NOTE_MAX}` : undefined}
+                  />
                 </View>
               ))}
             </Card>
           ) : null}
 
-          <TextField label="Notes (optional)" value={notes} onChangeText={setNotes} multiline maxLength={200} placeholder="Notes…" style={{ marginTop: 16 }} hint={`${notes.length}/200`} />
+          <TextField
+            label="Notes (optional)"
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            maxLength={200}
+            placeholder="Notes…"
+            style={{ marginTop: 16 }}
+            hint={`${notes.length}/200 · used for any symptom without its own note`}
+          />
           <View style={styles.concern}>
             <Stethoscope size={15} color={palette.green[700]} />
             <AppText variant="caption" color={brandText} style={{ flex: 1, fontSize: 12.5, lineHeight: 18 }}>
@@ -124,7 +221,7 @@ export default function Symptoms() {
             </AppText>
           </View>
 
-          <SectionHeader eyebrow={formatDate(date, 'short')} title={date === state.today ? 'Logged today' : 'Logged this day'} />
+          <SectionHeader eyebrow={formatDate(date, 'short')} title={isToday ? 'Logged today' : 'Logged this day'} />
           <Card padded={false} style={{ paddingHorizontal: 16, paddingVertical: todays.length ? 4 : 0 }}>
             {todays.length ? (
               todays.map((l, i) => (
@@ -132,9 +229,14 @@ export default function Symptoms() {
                   <View style={styles.rowIcon}>
                     <KeyIcon name={state.symptomDefs.find((s) => s.id === l.symptomId)?.icon ?? 'sparkles'} size={15} color={palette.rose[600]} />
                   </View>
-                  <AppText variant="bodyMedium" style={{ flex: 1 }}>
-                    {labelOf(l.symptomId)}
-                  </AppText>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyMedium">{labelOf(l.symptomId)}</AppText>
+                    {l.notes ? (
+                      <AppText variant="caption" muted numberOfLines={2} style={{ marginTop: 2 }}>
+                        {l.notes}
+                      </AppText>
+                    ) : null}
+                  </View>
                   <Pill label={SEVERITIES.find((s) => s.key === l.severity)?.label ?? ''} tone={SEV_TONE[l.severity]} />
                   <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${labelOf(l.symptomId)}`} onPress={() => dispatch({ type: 'REMOVE_SYMPTOM_LOG', id: l.id })} hitSlop={8} style={styles.iconBtn}>
                     <Trash2 size={15} color={palette.ink[600]} />
@@ -148,7 +250,7 @@ export default function Symptoms() {
 
           {customs.length ? (
             <>
-              <SectionHeader eyebrow="Made by you" title="Your custom symptoms" action="New" onAction={() => router.push('/symptom-new')} />
+              <SectionHeader eyebrow="Made by you" title="Your custom symptoms" action="New" onAction={newCustom} />
               <Card padded={false} style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
                 {customs.map((c, i) => (
                   <View key={c.id} style={[styles.sevRow, i === customs.length - 1 && { borderBottomWidth: 0 }]}>
@@ -205,9 +307,14 @@ export default function Symptoms() {
                       {formatDate(l.date, 'short')}
                     </AppText>
                   </View>
-                  <AppText variant="bodyMedium" style={{ flex: 1 }}>
-                    {labelOf(l.symptomId)}
-                  </AppText>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyMedium">{labelOf(l.symptomId)}</AppText>
+                    {l.notes ? (
+                      <AppText variant="caption" muted numberOfLines={2} style={{ marginTop: 2 }}>
+                        {l.notes}
+                      </AppText>
+                    ) : null}
+                  </View>
                   <Pill label={SEVERITIES.find((s) => s.key === l.severity)?.label ?? l.severity} tone={SEV_TONE[l.severity]} />
                 </View>
               ))
@@ -220,6 +327,19 @@ export default function Symptoms() {
           </AppText>
         </>
       )}
+
+      <DateSheet
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Log symptoms for…"
+        subtitle="Pick the day you felt these symptoms. Future days can’t be logged."
+        value={date}
+        onChange={(d) => {
+          setDate(d);
+          setPickerOpen(false);
+        }}
+        maxDate={state.today}
+      />
     </Screen>
   );
 }

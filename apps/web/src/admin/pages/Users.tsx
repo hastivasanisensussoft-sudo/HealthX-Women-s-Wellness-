@@ -1,12 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Apple, Crown, Download, Eye, EyeOff, Fingerprint, KeyRound, Lock, Mail, MailCheck, Monitor, ShieldAlert, ShieldCheck, Smartphone, Trash2, UserCheck, UserRound, UserX, Users as UsersIcon, Wand2, type LucideIcon } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Activity, Apple, Crown, Download, Eye, EyeOff, Fingerprint, KeyRound, Lock, Mail, MailCheck, Monitor, ShieldAlert, ShieldCheck, Smartphone, Trash2, UserCheck, UserRound, UserX, Users as UsersIcon, Wand2, type LucideIcon } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDate, timeAgo } from '@healthx/shared';
 import { Avatar } from '@/components/brand/Brand';
 import {
   BackendBadge,
   Badge,
   Button,
+  ButtonLink,
   Card,
   CardSkeleton,
   Checkbox,
@@ -176,7 +177,7 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
           setBgNote(r.note);
           setBg(false);
           setGranted(true);
-          toast.info('Break-glass access granted', 'Logged to the audit trail. Expires in 15 minutes.');
+          toast.info('Break-glass access granted', 'Logged to the audit trail. Ends in 30 minutes.');
         } catch (err) {
           toast.error('Break-glass refused', err instanceof ApiError ? err.message : undefined);
         } finally {
@@ -188,7 +189,7 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
     audit('user.break_glass', user.id, `${bgTicket.trim().toUpperCase()} · ${bgReason.trim()}`);
     setBg(false);
     setGranted(true);
-    toast.info('Break-glass access granted', 'Logged to the audit trail. Expires in 15 minutes.');
+    toast.info('Break-glass access granted', 'Logged to the audit trail. Ends in 30 minutes.');
   };
 
   return (
@@ -210,6 +211,9 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
                 Member since {formatDate(user.signupDate)} · {user.country}
               </p>
             </div>
+            <ButtonLink to={`/admin/users/${encodeURIComponent(user.id)}`} size="sm" variant="secondary" leftIcon={<Activity className="h-4 w-4" />}>
+              Profile & activity
+            </ButtonLink>
           </div>
 
           <Block title="Account" icon={UserRound}>
@@ -305,8 +309,8 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
                   <p className="font-display text-[16px] font-semibold text-ink-900">Health data</p>
                   <p className="text-sm leading-relaxed text-ink-500">
                     {granted
-                      ? 'Break-glass access active (15 min). Data CATEGORIES and COUNTS only — individual values are never shown, because the SRS doesn’t authorise staff to view health records.'
-                      : 'Hidden. Staff never see cycle, symptom, mood or other health logs (SRS §68). Admins with the break-glass permission can use audited break-glass to see data categories and counts only [ADD A-15].'}
+                      ? 'Break-glass access active (30 min). Open the health records to see this person’s cycle, symptom, mood, fertility, life-stage, fitness, nutrition, hydration and sleep logs. Every view is written to the audit log.'
+                      : 'Hidden by default (SRS §68). Admins holding the health-records (break-glass) permission can open them for 30 minutes after giving a reason — every grant and view is audited [ADD A-15].'}
                   </p>
                 </div>
               </div>
@@ -317,6 +321,11 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
               )}
               {!can('break_glass') && <Badge tone="gray" icon={<Lock className="h-3 w-3" />}>Break-glass permission only</Badge>}
             </div>
+            {granted && (
+              <ButtonLink to={`/admin/users/${encodeURIComponent(user.id)}?tab=health`} size="sm" variant="primary" className="mt-3" leftIcon={<ShieldAlert className="h-4 w-4" />}>
+                Open health records
+              </ButtonLink>
+            )}
             {granted && (
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 {(bgCounts ?? ['Cycle & period logs', 'Symptom logs', 'Check-ins', 'Hydration', 'Workouts', 'Sleep'].map((label, i) => ({ label, count: [42, 118, 76, 210, 31, 64][i] }))).map((c) => (
@@ -431,7 +440,7 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
         open={bg}
         onClose={() => setBg(false)}
         title="Break-glass access"
-        description="Temporary, audited access to a user’s health data — only for a documented support or safety reason."
+        description="Temporary, audited access to a person’s health records — only for a documented support or safety reason."
         footer={
           <>
             <Button variant="ghost" onClick={() => setBg(false)}>
@@ -446,7 +455,7 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
         <div className="space-y-4">
           <div className="flex items-start gap-3 rounded-2xl bg-warning-soft px-4 py-3 text-sm text-ink-700">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <span>Access lasts 15 minutes and shows data categories and counts only. Your ticket and reason are written to the audit log.</span>
+            <span>Access lasts 30 minutes and lets you open this person’s health records. Your ticket and reason, and every view, are written to the audit log.</span>
           </div>
           <Field label="Support ticket" required htmlFor="bg-ticket" error={bgErr.ticket}>
             <Input id="bg-ticket" value={bgTicket} onChange={(e) => setBgTicket(e.target.value)} invalid={!!bgErr.ticket} placeholder="SUP-1042" />
@@ -466,6 +475,7 @@ function UserDetail({ user, onClose, intent }: { user: AdminUser; onClose: () =>
 
 export default function UsersPage() {
   const { state, audit } = useAdmin();
+  const nav = useNavigate();
   const { can } = useAccess();
   const toast = useToast();
   const loading = useDemoLoading(450);
@@ -531,7 +541,7 @@ export default function UsersPage() {
 
   return (
     <>
-      <AdminHeader title="Users" subtitle="Account administration (§6.4). Health logs are never shown here by default (§68)." badge={<Badge tone="butter">{state.users.length} demo users</Badge>} />
+      <AdminHeader title="Users" subtitle="Account administration (§6.4). Open a profile for the person’s app activity; health records need audited access (§68)." badge={<Badge tone="butter">{state.users.length} demo users</Badge>} />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <KpiCard label="Total" value={total} icon={<UsersIcon className="h-5 w-5" />} hint="Accounts in this demo" />
@@ -553,7 +563,7 @@ export default function UsersPage() {
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-ink-100 pt-4 text-xs">
           {[
             [Mail, 'Emails masked by default'],
-            [EyeOff, 'Health logs never shown (§68)'],
+            [EyeOff, 'Health records: audited access only (§68)'],
             [ShieldCheck, 'Every reveal is audited'],
           ].map(([I, t]) => {
             const Icon = I as LucideIcon;
@@ -642,6 +652,7 @@ export default function UsersPage() {
                         label={u.name}
                         actions={[
                           { label: 'View account', icon: Eye, onSelect: () => open(u.id) },
+                          { label: 'Profile & activity', icon: Activity, onSelect: () => nav(`/admin/users/${encodeURIComponent(u.id)}`) },
                           u.status !== 'deleted' && can('resend_verification') && { label: 'Resend verification', icon: MailCheck, onSelect: () => quick(u, 'user.resend_verification', 'Verification email re-sent (simulated)') },
                           u.status !== 'deleted' && can('process_data_requests') && { label: 'Process data export', icon: Download, onSelect: () => quick(u, 'user.export_processed', 'Export link sent to the user (simulated)') },
                           can('manage_user_status') && u.status === 'active' && { label: 'Deactivate…', icon: UserX, onSelect: () => open(u.id, 'deactivate') },

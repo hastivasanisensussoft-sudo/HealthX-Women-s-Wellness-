@@ -6,6 +6,7 @@
 import { addDays, diffDays, formatDate, lastNDays, startOfWeek, weekday } from './dates';
 import { computeCycleState, type CycleState } from './cycle';
 import { COPY } from './copy';
+import type { CoachContext } from './coach';
 import { energyBand, moodScore } from './catalog';
 import type { AppState } from './state';
 import type { CheckIn, ISODate, Insight, MoodLevel, WellnessGoal, WellnessWeights } from './types';
@@ -316,7 +317,10 @@ export function computeInsights(s: AppState, opts: { includeDismissed?: boolean 
     });
   }
 
-  return opts.includeDismissed ? out : out.filter((i) => !s.dismissedInsights.includes(i.id));
+  // Rules an Admin switched off in the Web Admin (§37) produce nothing.
+  const off = s.managed?.disabledRules ?? [];
+  const active = off.length ? out.filter((i) => !off.includes(i.ruleId)) : out;
+  return opts.includeDismissed ? active : active.filter((i) => !s.dismissedInsights.includes(i.id));
 }
 
 // ---------- weekly summary (§36, rules-based) ----------
@@ -325,6 +329,8 @@ export interface WeeklySummary {
   start: ISODate;
   end: ISODate;
   cycleDay: number | null;
+  /** Estimated phase today (calendar estimate). */
+  phase: CycleState['phase'];
   steps: number;
   workouts: number;
   avgSleep: number | null;
@@ -351,6 +357,7 @@ export function weeklySummary(s: AppState, end: ISODate = s.today, n = 7): Weekl
     start: days[0],
     end,
     cycleDay: cs.cycleDay,
+    phase: cs.phase,
     steps: days.reduce((a, d) => a + stepsOn(s, d), 0),
     workouts: days.reduce((a, d) => a + workoutsOn(s, d).length, 0),
     avgSleep,
@@ -369,6 +376,13 @@ export function weeklySummary(s: AppState, end: ISODate = s.today, n = 7): Weekl
       energy: checkInOn(s, d)?.energy ?? null,
     })),
   };
+}
+
+/** What the coach may use from the person's logs — only with AI-personalisation consent (§35). */
+export function coachContextOf(s: AppState): CoachContext | null {
+  if (!s.consents.find((c) => c.id === 'ai_personalization')?.granted) return null;
+  const w = weeklySummary(s);
+  return { avgSleepHours: w.avgSleep, sleepTargetHours: s.sleepTargetHours, avgEnergy: w.avgEnergy, hydrationPct: w.hydrationPct, workouts7d: w.workouts };
 }
 
 export function unreadCount(s: AppState) {

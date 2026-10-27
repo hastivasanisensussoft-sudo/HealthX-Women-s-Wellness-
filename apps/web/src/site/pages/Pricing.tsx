@@ -55,8 +55,8 @@ export default function Pricing() {
           </div>
         }
       >
-        <ButtonLink to="/signup" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
-          Create your free account
+        <ButtonLink to="/get-the-app" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+          Get the free app
         </ButtonLink>
       </PageHero>
       <PricingCards />

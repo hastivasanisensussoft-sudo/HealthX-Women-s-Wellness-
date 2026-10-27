@@ -20,6 +20,7 @@ import { workoutVideo } from '@/components/b-workout';
 import { useStore } from '@/lib/store';
 import { colors, font, palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
+import { track } from '@/lib/track';
 
 export default function WorkoutSession() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +34,10 @@ export default function WorkoutSession() {
   const [done, setDone] = useState(false);
   const [quitOpen, setQuitOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (id) track('workout_started', id);
+  }, [id]);
 
   useEffect(() => {
     if (running && !done) timer.current = setInterval(() => setSecs((s) => s + 1), 1000);

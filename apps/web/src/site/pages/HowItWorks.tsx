@@ -39,7 +39,7 @@ export default function HowItWorks() {
         position="45% 30%"
       >
         <div className="flex flex-wrap gap-3">
-          <ButtonLink to="/signup" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+          <ButtonLink to="/get-the-app" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
             Start free
           </ButtonLink>
           <a href="#journey" className="glass-dark inline-flex h-[52px] items-center rounded-full px-6 font-semibold text-white transition hover:bg-white/15">

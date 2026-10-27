@@ -5,11 +5,13 @@
 import {
   FLOWS,
   PERIOD_SYMPTOM_IDS,
+  SEVERITIES,
   computeCycleState,
   formatDate,
   validatePeriodRange,
   type Flow,
   type ISODate,
+  type Severity,
 } from '@healthx/shared';
 import { router, useLocalSearchParams } from 'expo-router';
 import { CalendarDays, Droplet, Trash2, X } from 'lucide-react-native';
@@ -30,6 +32,8 @@ import { useToast } from '@/lib/toast';
 
 type Mode = 'start' | 'past' | 'end';
 
+const SEV_TONE: Record<Severity, 'green' | 'peach' | 'rose'> = { mild: 'green', moderate: 'peach', severe: 'rose' };
+
 export default function LogPeriod() {
   const { state, dispatch } = useStore();
   const toast = useToast();
@@ -46,11 +50,13 @@ export default function LogPeriod() {
   const [month, setMonth] = useState(editing?.start ?? today);
   const [flow, setFlow] = useState<Flow>((open && open.flowByDay[today]) || (editing && editing.flowByDay[editing.start]) || 'medium');
   const [symptoms, setSymptoms] = useState<string[]>([]);
+  const [severity, setSeverity] = useState<Severity>('mild');
   const [notes, setNotes] = useState(editing?.notes ?? '');
   const [error, setError] = useState<string | null>(null);
 
   const calState = useMemo(() => computeCycleState(state.periods, state.cycleProfile, today), [state.periods, state.cycleProfile, today]);
-  const symptomDefs = state.symptomDefs.filter((s) => PERIOD_SYMPTOM_IDS.includes(s.id));
+  // Period symptoms in catalogue order, limited to this account's symptom list (the server rejects unknown ids).
+  const symptomDefs = PERIOD_SYMPTOM_IDS.flatMap((sid) => state.symptomDefs.filter((s) => s.id === sid));
 
   const save = () => {
     if (mode === 'end' && open) {
@@ -76,8 +82,9 @@ export default function LogPeriod() {
       dispatch({ type: 'ADD_PERIOD', start: s, end: e, flow, notes: notes.trim() || undefined });
       toast('Period logged — estimates updated');
     }
-    if (symptoms.length) {
-      dispatch({ type: 'LOG_SYMPTOMS', date: s, entries: symptoms.map((symptomId) => ({ symptomId, severity: state.symptomDefs.find((d) => d.id === symptomId)?.defaultSeverity ?? 'mild' })) });
+    const picked = symptoms.filter((sid) => symptomDefs.some((d) => d.id === sid));
+    if (picked.length) {
+      dispatch({ type: 'LOG_SYMPTOMS', date: s, entries: picked.map((symptomId) => ({ symptomId, severity })) });
     }
     goBack();
   };
@@ -234,6 +241,14 @@ export default function LogPeriod() {
                     />
                   ))}
                 </View>
+                {symptoms.length ? (
+                  <View style={{ gap: 8, marginTop: 14 }}>
+                    <AppText variant="label" color={palette.ink[800]}>
+                      How strong? Applies to the symptoms you picked
+                    </AppText>
+                    <Segmented tone={SEV_TONE[severity]} value={severity} onChange={setSeverity} options={SEVERITIES.map((x) => ({ key: x.key, label: x.label }))} />
+                  </View>
+                ) : null}
               </>
             ) : null}
 

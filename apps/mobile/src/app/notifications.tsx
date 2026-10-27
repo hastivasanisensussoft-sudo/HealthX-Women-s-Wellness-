@@ -1,7 +1,7 @@
 /** Notifications inbox (SRS §41): quick type switches, All / Unread, grouped new & earlier items, mark read, delete. */
-import { NOTIFICATION_TYPES, timeAgo, type AppNotification, type NotificationType } from '@healthx/shared';
+import { COPY, NOTIFICATION_TYPES, cycleStateOf, formatDate, normalizeNotificationPrefs, timeAgo, type AppNotification, type NotificationType } from '@healthx/shared';
 import { router } from 'expo-router';
-import { BellOff, CheckCheck, Settings2, Trash2 } from 'lucide-react-native';
+import { BellOff, CalendarClock, CheckCheck, Settings2, Trash2 } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 
@@ -19,7 +19,7 @@ import { useStore } from '@/lib/store';
 import { colors, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
-const TONE: Record<AppNotification['type'], TileTone> = { cycle: 'rose', habit: 'lavender', hydration: 'sky', workout: 'green', content: 'butter', report: 'indigo' };
+const TONE: Record<AppNotification['type'], TileTone> = { cycle: 'rose', habit: 'lavender', hydration: 'sky', workout: 'green', sleep: 'indigo', appointment: 'peach', content: 'butter', report: 'indigo' };
 
 export default function Notifications() {
   const { state, dispatch } = useStore();
@@ -31,8 +31,14 @@ export default function Notifications() {
   const prefs = state.notificationPrefs;
   const groups = filter === 'unread' ? [{ title: 'Unread', items: list }] : [{ title: 'New', items: list.filter((n) => !n.read) }, { title: 'Earlier', items: list.filter((n) => n.read) }];
 
+  const cs = cycleStateOf(state);
+  const nextAppointment = state.reminders
+    .filter((r) => r.enabled && r.date && r.date >= state.today)
+    .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))[0];
+  const showPeriod = prefs.types.cycle.enabled && state.profile.mode !== 'pregnancy' && cs.nextPeriodStart;
+
   const setType = (k: NotificationType, enabled: boolean) => {
-    dispatch({ type: 'UPDATE_NOTIFICATION_PREFS', prefs: { ...prefs, types: { ...prefs.types, [k]: { ...prefs.types[k], enabled } } } });
+    dispatch({ type: 'UPDATE_NOTIFICATION_PREFS', prefs: normalizeNotificationPrefs({ ...prefs, types: { ...prefs.types, [k]: { ...prefs.types[k], enabled } } }) });
     toast(`${NOTIFICATION_TYPES.find((t) => t.key === k)?.label} reminders ${enabled ? 'on' : 'off'}`, 'info');
   };
 
@@ -73,6 +79,35 @@ export default function Notifications() {
           );
         })}
       </ScrollView>
+
+      {showPeriod || nextAppointment ? (
+        <Card style={{ marginTop: 16, gap: 10 }}>
+          <AppText variant="overline" color={palette.green[700]}>
+            Coming up
+          </AppText>
+          {showPeriod && cs.nextPeriodStart ? (
+            <View style={styles.upRow}>
+              <KeyIcon name="droplets" size={16} color={palette.rose[500]} />
+              <AppText variant="small" style={{ flex: 1 }}>
+                Period estimate* around {formatDate(cs.nextPeriodStart, 'long')} — a reminder comes 2 days before.
+              </AppText>
+            </View>
+          ) : null}
+          {nextAppointment?.date ? (
+            <View style={styles.upRow}>
+              <CalendarClock size={16} color={palette.green[700]} />
+              <AppText variant="small" style={{ flex: 1 }}>
+                {nextAppointment.title} · {formatDate(nextAppointment.date, 'long')}
+              </AppText>
+            </View>
+          ) : null}
+          {showPeriod ? (
+            <AppText variant="caption" muted>
+              {COPY.estimate}
+            </AppText>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Segmented value={filter} onChange={setFilter} options={[{ key: 'all', label: 'All' }, { key: 'unread', label: `Unread (${unread})` }]} style={{ marginTop: 16 }} />
       {unread ? (
@@ -165,4 +200,5 @@ const styles = StyleSheet.create({
   icon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose[500] },
   del: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  upRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });

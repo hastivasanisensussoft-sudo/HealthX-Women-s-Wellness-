@@ -36,7 +36,21 @@
       ],
       "expo-font",
       "expo-secure-store",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HealthX uses a photo you choose as your profile picture. It stays on this phone.",
+          "cameraPermission": "HealthX uses the camera only when you take a profile photo. It stays on this phone.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0D4336"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false,

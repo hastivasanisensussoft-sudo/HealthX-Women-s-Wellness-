@@ -3,7 +3,6 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { ArrowLeft, Bell, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, CloudOff, FlaskConical, LogOut, Menu, Repeat, Search, Server, ShieldCheck, Timer, UserRound, X } from 'lucide-react';
 import { Avatar, Logo, LogoMark } from '@/components/brand/Brand';
 import { Button, Popover, useToast } from '@/components/ui';
-import { useDispatch } from '@/store/AppStore';
 import { setOfflineDemo } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -407,7 +406,6 @@ function SidebarNav({ rail = false, onNavigate, onToggleRail }: { rail?: boolean
 
 function ProfileMenu({ onSignOut }: { onSignOut: () => void }) {
   const { state, dispatch, audit, apiMode } = useAdmin();
-  const appDispatch = useDispatch();
   const toast = useToast();
   const nav = useNavigate();
   const session = state.session!;
@@ -418,7 +416,6 @@ function ProfileMenu({ onSignOut }: { onSignOut: () => void }) {
     audit('staff.demo_role_switch', p.name, `${ROLE_META[session.role].label} → ${ROLE_META[role].label}`);
     const privileges = role === 'admin' ? (state.staff.find((m) => m.email === p.email)?.privileges ?? []) : [];
     dispatch({ type: 'SIGN_IN', session: { name: p.name, email: p.email, role, privileges, signedInAt: new Date().toISOString() } });
-    appDispatch({ type: 'SET_ROLE', role: role === 'end_user' ? 'user' : 'admin' });
     toast.info(`Demo role: ${ROLE_META[role].label}`, 'Switching roles is a demo-only shortcut.');
     nav('/admin');
   };
@@ -481,8 +478,8 @@ function ProfileMenu({ onSignOut }: { onSignOut: () => void }) {
           <Link to="/admin/account" role="menuitem" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-700 hover:bg-green-50">
             <UserRound className="h-4 w-4 text-ink-400" /> My account
           </Link>
-          <Link to="/app" role="menuitem" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-700 hover:bg-green-50">
-            <ArrowLeft className="h-4 w-4 text-ink-400" /> Back to user app
+          <Link to="/" role="menuitem" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-700 hover:bg-green-50">
+            <ArrowLeft className="h-4 w-4 text-ink-400" /> Public website
           </Link>
           <button
             type="button"
@@ -579,7 +576,6 @@ const ENV_STYLE = {
 export function AdminLayout() {
   const { state, audit, apiMode, signOut } = useAdmin();
   const { can } = useAccess();
-  const appDispatch = useDispatch();
   const toast = useToast();
   const nav = useNavigate();
   const loc = useLocation();
@@ -620,8 +616,6 @@ export function AdminLayout() {
     signOutRef.current = (reason) => {
       audit(reason === 'timeout' ? 'staff.session_timeout' : 'staff.logout', session.name);
       void signOut();
-      // Offline demo only: the user app mirrors the demo role locally.
-      if (!apiMode) appDispatch({ type: 'SET_ROLE', role: 'user' });
       if (reason === 'timeout') toast.info('Signed out after inactivity', `Admin sessions end after ${state.settings.sessionTimeoutMin} minutes without activity.`);
       nav('/admin/login');
     };

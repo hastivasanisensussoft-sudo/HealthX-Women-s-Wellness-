@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/Feedback';
 import { Stepper } from '@/components/Inputs';
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
+import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { VideoCard } from '@/components/Video';
 import { GlassStat, GroupHeader, HeroPanel, PageIntro, TintIcon, ON_DARK } from '@/components/b-kit';
@@ -22,6 +23,11 @@ import { useToast } from '@/lib/toast';
 
 const toClock = (m: number) => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 60) + 60) % 60).padStart(2, '0')}`;
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+/** Sleep goal limits accepted by SET_SLEEP_TARGET. */
+const GOAL_MIN = 5;
+const GOAL_MAX = 12;
+const toGoal = (h: number) => Math.min(GOAL_MAX, Math.max(GOAL_MIN, Math.round(h * 2) / 2));
+const fmtGoal = (h: number) => `${h} h`;
 const STARS: [number, number, number][] = [
   [18, 22, 3],
   [62, 14, 2],
@@ -42,6 +48,18 @@ export default function Sleep() {
   const week = useMemo(() => dailySeries(state, 7), [state]);
   const avg = week.filter((d) => d.sleep !== null);
   const avgH = avg.length ? avg.reduce((a, d) => a + (d.sleep as number), 0) / avg.length : null;
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goal, setGoal] = useState(toGoal(state.sleepTargetHours));
+
+  const openGoal = () => {
+    setGoal(toGoal(state.sleepTargetHours));
+    setGoalOpen(true);
+  };
+  const saveGoal = () => {
+    dispatch({ type: 'SET_SLEEP_TARGET', hours: goal });
+    toast(`Sleep goal set to ${fmtGoal(goal)}`);
+    setGoalOpen(false);
+  };
 
   const save = () => {
     if (dur < 60 || dur > 16 * 60) return toast('Sleep must be between 1 and 16 hours — check your times.', 'error');
@@ -143,7 +161,7 @@ export default function Sleep() {
       </Card>
 
       {/* Trend */}
-      <GroupHeader eyebrow="Trend" title="Last 7 nights" />
+      <GroupHeader eyebrow="Trend" title="Last 7 nights" action="Edit sleep goal" onAction={openGoal} />
       <Card>
         {avg.length ? (
           <>
@@ -159,9 +177,22 @@ export default function Sleep() {
             </AppText>
           </>
         ) : (
-          <EmptyState icon={Moon} title="No sleep logged" text="Log a night above to see your trend." />
+          <EmptyState icon={Moon} title="No sleep logged" text={`Log a night above to see your trend against your ${fmtGoal(state.sleepTargetHours)} goal.`} />
         )}
       </Card>
+
+      <Sheet
+        visible={goalOpen}
+        onClose={() => setGoalOpen(false)}
+        eyebrow="Sleep goal"
+        title="Edit sleep goal"
+        subtitle="The hours you’d like to sleep on most nights."
+        footer={<Button label="Save goal" full onPress={saveGoal} />}>
+        <Stepper label="Sleep goal" value={goal} onChange={setGoal} min={GOAL_MIN} max={GOAL_MAX} step={0.5} format={fmtGoal} />
+        <AppText variant="caption" muted style={{ marginTop: 10 }}>
+          Between {GOAL_MIN} and {GOAL_MAX} hours, in half-hour steps. It sets the target line on your 7-night trend.
+        </AppText>
+      </Sheet>
 
       {/* Wind down */}
       <GroupHeader eyebrow="Video preview" title="Wind down tonight" />

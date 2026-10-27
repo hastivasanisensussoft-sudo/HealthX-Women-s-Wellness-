@@ -1,10 +1,10 @@
-import { ArrowLeft, Compass, LifeBuoy, Search } from 'lucide-react';
+import { ArrowLeft, Compass, LifeBuoy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ButtonLink } from '@/components/ui';
 import { Leaf, LeafPair, Logo } from '@/components/brand/Brand';
 import { Photo } from '@/components/media/Photo';
 
-export default function NotFound({ inApp }: { inApp?: boolean }) {
+export default function NotFound() {
   const body = (
     <div className="mx-auto grid w-full max-w-5xl items-center gap-10 px-6 lg:grid-cols-[1fr_auto]">
       <div className="text-center lg:text-left">
@@ -17,11 +17,11 @@ export default function NotFound({ inApp }: { inApp?: boolean }) {
         <h1 className="mt-2 font-display text-[32px] font-semibold leading-tight tracking-[-0.02em] text-green-950 sm:text-[40px]">Page not found</h1>
         <p className="mx-auto mt-3 max-w-md text-[16px] leading-relaxed text-ink-500 lg:mx-0">The page you’re looking for doesn’t exist or has moved. Let’s get you back somewhere familiar.</p>
         <div className="mt-7 flex flex-wrap justify-center gap-3 lg:justify-start">
-          <ButtonLink to={inApp ? '/app' : '/'} size="lg" leftIcon={<ArrowLeft className="h-4 w-4" />}>
-            {inApp ? 'Back to dashboard' : 'Back to home'}
+          <ButtonLink to="/" size="lg" leftIcon={<ArrowLeft className="h-4 w-4" />}>
+            Back to home
           </ButtonLink>
-          <ButtonLink to={inApp ? '/app/learn/faq' : '/faq'} size="lg" variant="outline" leftIcon={inApp ? <Search className="h-4 w-4" /> : <LifeBuoy className="h-4 w-4" />}>
-            {inApp ? 'Most asked questions' : 'Help centre'}
+          <ButtonLink to="/faq" size="lg" variant="outline" leftIcon={<LifeBuoy className="h-4 w-4" />}>
+            Help centre
           </ButtonLink>
         </div>
       </div>
@@ -32,7 +32,6 @@ export default function NotFound({ inApp }: { inApp?: boolean }) {
       </div>
     </div>
   );
-  if (inApp) return <div className="py-12">{body}</div>;
   return (
     <div className="bg-wash relative isolate flex min-h-screen flex-col overflow-hidden">
       <Leaf className="pointer-events-none absolute -bottom-20 -left-16 -z-10 h-72 w-72 -rotate-12 text-green-200/60" color="currentColor" vein={false} />

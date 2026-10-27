@@ -1,16 +1,21 @@
 # HealthX Women's Wellness
 
-Implementation of the HealthX Women's Wellness SRS v1.0: a **web app** (landing page, user dashboard, admin/CMS), a **mobile app** (iOS + Android) and a **minimal in-memory API** (`apps/api`) for authentication, the four SRS roles, owner-only wellness data, the content review workflow and the audit log. There is **no database** (by decision — API data resets on restart), and no real AI, payments, push or email delivery.
+Implementation of the HealthX Women's Wellness SRS v1.0 (platforms: iOS, Android, Web Admin):
+- a **mobile app** (iOS + Android): where end users use HealthX;
+- a **Web Admin** for the three staff roles (Content Manager, Medical Content Reviewer, Admin), plus the public website;
+- a **minimal in-memory API** (`apps/api`): authentication, the four SRS roles, owner-only wellness data, the app-activity log, the content review workflow and the audit log.
+
+The end-user web dashboard was retired on 2026-10-27. Its routes redirect to **Get the app**; the email-link pages (password reset, email confirmation, magic-link hand-off) stay on the web. There is **no database** (by decision — API data resets on restart), and no real AI, payments, push or email delivery.
 
 ```
 apps/
   web/        React 18 + Vite + TypeScript + Tailwind CSS + Recharts + lucide-react
     src/
       site/         1) Public website — home, features, pricing, FAQ, contact
-      user/         2) User application — auth, onboarding, /app/* wellness modules
-      admin/        3) Admin panel — role-based staff portal at /admin/*
+      account/      2) Account links from emails — reset password, confirm email, magic-link hand-off
+      admin/        3) Web Admin — role-based staff portal at /admin/*
       components/   Shared design system (ui, charts, brand, cycle ring/calendar)
-      store/ lib/   Demo store (shared reducer + localStorage), helpers
+      lib/ theme/   API clients, helpers, theme engine
   mobile/     Expo (React Native) + Expo Router + TypeScript + react-native-svg
               — the user application for iOS & Android
   api/        Node.js (built-ins only) in-memory API — auth + staff MFA, the four roles
@@ -27,52 +32,51 @@ packages/
 npm run install:all   # web, mobile and api dependencies
 npm run dev           # API on http://127.0.0.1:4000 + web on http://localhost:5173 (the web app reaches the API via /api)
 npm run api:test      # API unit + integration tests
+npm run shared:test   # unit tests for the shared logic (cycle, dates, score, streaks, life stages, reminders, coach safety…)
 
 # Mobile (scan the QR code with Expo Go, or press w for web preview)
 cd apps/mobile
 npx expo start
 ```
 
-Without the API the web app offers an **offline demo** (local data, nothing enforced).
+Without the API, the Web Admin and the mobile app offer an **offline demo** (local data, nothing enforced).
 
 | Area | Web routes |
 |---|---|
-| Public website | `/` Home · `/about` · `/features` · `/how-it-works` · `/pricing` · `/contact` · `/faq` (navbar also has Login and Sign Up, with a mobile menu below 1280 px) |
-| User application | `/login` · `/signup` · `/forgot-password` · `/onboarding` · `/app/*` (the green-and-white dashboard and every wellness module; see the sidebar map below) |
-| Admin panel | `/admin/login` · `/admin/*` (role-specific dashboards, users and support, content and medical review, notifications, subscriptions, analytics, roles and permissions, settings and audit log) |
+| Public website | `/` Home · `/about` · `/features` · `/how-it-works` · `/pricing` · `/contact` · `/faq` · `/get-the-app` (navbar has **Staff login** and **Get the app**, with a mobile menu below 1280 px) |
+| Account links | `/reset-password?token=…` · `/verify-email?token=…` · `/login?magic=…` (hands the link to the app; the token is never redeemed on the web) |
+| Retired end-user web app | `/app/*` · `/signup` · `/login` · `/onboarding` · `/forgot-password` → redirect to `/get-the-app` |
+| Web Admin | `/admin/login` · `/admin/*` (role-specific dashboards, users and their app activity, content and medical review, daily plans, notifications, subscriptions, analytics, roles and permissions, settings, appearance and audit log) |
 
-**User app sidebar** (`apps/web/src/user/layout/nav.ts`). Groups are expandable, the active page is highlighted, the sidebar collapses to an icon rail with flyout menus on desktop, and it becomes a drawer on tablet and phone.
+**Admin sidebar:** Dashboard · User Management (users, **app activity**, support, privacy requests) · Content Management (library, create, review queue, compliance, publishing calendar, **daily plans**, media library, categories & tags, version history) · Subscriptions · Notifications · Analytics & Reports · Roles & Permissions · Settings & Audit Logs (settings, configuration, flags, audit log, **appearance**, my account). Each role sees only the sections it can use. Admin login also has a staff "Forgot password" screen.
 
-| Group | Pages |
-|---|---|
-| Overview | `/app` Home dashboard · `/app/check-in` · `/app/wellness-score` |
-| Cycle & Period | `/app/cycle` · `/app/cycle/calendar` · `/app/cycle/history` · `/app/cycle/insights` |
-| Symptoms & Mood | `/app/symptoms` · `/app/mood` · `/app/stress` |
-| Daily Wellness | `/app/hydration` · `/app/sleep` · `/app/fitness` · `/app/nutrition` |
-| Goals & Habits | `/app/goals` · `/app/habits` · `/app/plan` · `/app/achievements` (P2) |
-| Insights & Reports | `/app/insights/weekly` · `/app/insights/progress` · `/app/insights/trends` |
-| Learn | `/app/learn` (library with Quick Help, medium & time filters) · `/app/learn/womens-wellness` · `/app/learn/fertility-pregnancy` (links to `/app/fertility` and `/app/life-stages`) · `/app/learn/faq` · `/app/community` (P4) |
-| Profile & Settings | `/app/profile` · `/app/notifications` · `/app/privacy` · `/app/integrations` (P2) · `/app/subscription` (and `/app/settings` from the profile menu) |
+**Mobile app → Web Admin (added 2026-10-27):**
+- **App activity:** the API records every account action (sign-up, sign-in, password reset…) and every record saved from the mobile app as an activity event: its type and time, never its value. Screen views, video plays and coach questions are recorded only when the person allows product analytics. Admins see a live feed (`/admin/activity`), KPIs on the dashboard and in Analytics, and each person's timeline on their profile (`/admin/users/:id`). Activity is erased with the account.
+- **Health records:** Admins who hold the per-account break-glass (health-records) permission can open a person's records (cycle, symptoms, mood, fertility, life stage, fitness, nutrition, hydration, sleep, habits and goals) after giving a ticket and a reason. Access lasts 30 minutes, and every grant and view goes in the audit log. Admins without that permission, Content Managers and Medical Content Reviewers can't open them.
+- **Web Admin → app:** daily-plan templates (Content Manager writes, Medical Content Reviewer approves), Wellness Score weights, insight rules, staff-added symptoms and tracking defaults reach the app through the API, and campaigns can be delivered to people's in-app inbox.
 
-The AI coach (`/app/coach`) opens from the top bar. Old links redirect: `/app/insights` → trends, `/app/premium` → subscription.
-
-**Admin sidebar:** Dashboard · User Management (users, support, privacy requests) · Content Management (library, create, review queue, compliance, publishing calendar, media library, categories & tags, version history) · Subscriptions · Notifications · Analytics & Reports · Roles & Permissions · Settings & Audit Logs (settings, configuration, flags, audit log, my account). Each role sees only the sections it can use. Admin login also has a staff "Forgot password" screen.
+**Mobile app modules (completed 2026-10-27; checklist in `docs/reports/2026-10-27-module-checklist.md`):**
+- **Life stages:** pregnancy week and estimated due date counted from the last period (decision D-21), appointment reminders, questions for a provider; perimenopause and menopause show the share of target over the last 7 days (D-36), hot-flash and symptom charts, a weight log and a menopause routine. Pregnancy mode pauses period estimates and reminders.
+- **Tracking:** cycle settings ("Not sure" saves nothing, so no 28-day assumption), symptoms on any past date with per-symptom notes, period severity, optional stress and anxiety, 14 days of fertility logging with trends, an editable sleep goal.
+- **Reminders on the phone:** local notifications (`expo-notifications`) built from the shared, unit-tested `reminderPlan()`. They respect consent, quiet hours, discreet mode and pregnancy mode. Server push still needs the backend.
+- **Premium (SRS §49):** the coach, advanced insights, monthly and cycle reports, advanced cycle history, nutrition and meal ideas, personalised workouts and Premium themes are locked on Free. The 7-day trial is granted by the server. The UI lock is not a security control, and paid plans need store billing.
+- **Kept on the phone (the API can't store it yet):** profile photo (camera or gallery), weight history, questions for a provider, grocery list, integration data types and the trial end date. It is stored in secure storage, or in this tab's session storage in the web preview. It is never sent to the server and is removed when the account is deleted.
 
 Useful commands (in `apps/web`): `npm run dev`, `npm run lint`, `npm run typecheck`, `npm run build`.
 
 **Roles — the four from SRS §6:** End User (§6.1), Content Manager (§6.2), Medical Content Reviewer (§6.3) and Admin (§6.4).
 - The former Super Admin, Support Agent and Analyst roles were merged into Admin on 2026-10-26.
-- The most sensitive Admin powers are privileged permissions held by individual Admins: manage staff, edit the permission matrix, change security settings, and break-glass.
+- The most sensitive Admin powers are privileged permissions held by individual Admins: manage staff, edit the permission matrix, change security settings, and break-glass (health-records access).
 - See `apps/api/README.md` for the full model.
 
 **Demo access (synthetic accounts, development only)**
-- **User app (with the API):** sign in as `aisha@example.com` or `riya.test@example.com` with the demo password printed by the API on start-up. Or **Sign up** for a new account, then follow onboarding.
+- **Mobile app (with the API):** sign in as `aisha@example.com` or `riya.test@example.com` with the demo password printed by the API on start-up. Or **Sign up** for a new account, then follow onboarding.
   - The API keeps everything in memory, so it resets when it restarts.
 - **Admin portal (with the API):** `/admin/login` with a seeded staff account (listed in `apps/api/README.md`) and the demo password, then the 6-digit code.
   - In development the current code is available from the API's dev helper.
   - Each role gets its own dashboard and navigation. Every permission is enforced by the API, so typing a URL or calling the API directly doesn't get around it.
-  - Staff never see an individual user's cycle, fertility, symptom or mood records. Break-glass shows data categories and record counts only.
-- **Offline demo:** if the API isn't running, the web app offers an offline demo.
+  - Staff see what people did and when, never the values. Only an Admin with the break-glass permission can open a person's health records: reason required, 30 minutes, audited.
+- **Offline demo:** if the API isn't running, the Web Admin offers an offline demo with simulated activity.
   - Admin sign-in there takes any email, any 8+ character password and any 6-digit code, then lets you pick one of the four roles.
   - **These are mock permissions for demonstration only, not real security.**
 - **Error and empty states:**
@@ -101,15 +105,14 @@ All values live in `packages/shared/src/tokens.ts`. The web Tailwind theme and t
 
 ### Themes (Settings → Appearance)
 
-Users can pick an accent theme and a Light, Dark or System mode on both apps. **Evergreen** (the default), **Sage** and **Ocean** are free. **Lavender**, **Blush** and **Sunrise** are Premium; the Premium plan here is the simulated demo plan and no real payment is taken. The definitions and colour maths are in `packages/shared/src/themes.ts`.
+People pick an accent theme and a Light, Dark or System mode in the mobile app; staff do the same in the Web Admin (Settings → Appearance). **Evergreen** (the default), **Sage** and **Ocean** are free. **Lavender**, **Blush** and **Sunrise** are Premium in the app; the Premium plan here is the simulated demo plan and no real payment is taken. Staff can use every theme. The definitions and colour maths are in `packages/shared/src/themes.ts`.
 
-- **Web:** every Tailwind colour is a CSS variable, so a theme change re-colours every page instantly (`apps/web/src/theme/`). Free-plan users can preview Premium themes on the Appearance page.
-- **Mobile:** the theme is applied at start-up, before any screen loads (`apps/mobile/src/lib/themeBoot.ts`), so applying a new one restarts the app briefly.
-- On both apps, a saved Premium theme switches back to Evergreen if the plan no longer includes it.
+- **Web (Web Admin and website):** every Tailwind colour is a CSS variable, so a theme change re-colours every page instantly (`apps/web/src/theme/`).
+- **Mobile:** the theme is applied at start-up, before any screen loads (`apps/mobile/src/lib/themeBoot.ts`), so applying a new one restarts the app briefly. A saved Premium theme switches back to Evergreen if the plan no longer includes it.
 
 ## Demo vs backend boundary
 
-- All state comes from `packages/shared/src/state.ts`: a pure reducer over seeded mock data generated relative to *today*. Web persists it in `localStorage`, mobile in memory/AsyncStorage. **Settings → Reset demo data** restores it.
+- App state comes from `packages/shared/src/state.ts`: a pure reducer over seeded mock data generated relative to *today*. With the API it lives on the server; in the offline demo the mobile app keeps it on the device. **Settings → Reset demo data** restores it.
 - Each reducer action is annotated with the NestJS module (SRS §56) that will own it.
 - UI that would need a server (export, account deletion, AI, health-platform sync, payments, email) is labelled **"Requires backend — simulated"**.
 - Features from later phases carry **Phase 2** or **Phase 3 preview** badges, following the SRS phase plan.

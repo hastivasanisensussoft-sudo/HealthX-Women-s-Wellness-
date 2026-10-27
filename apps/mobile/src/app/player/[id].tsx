@@ -19,6 +19,7 @@ import { Leaf, LeafPair, ON_DARK } from '@/components/b-kit';
 import { useStore } from '@/lib/store';
 import { colors, font, palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
+import { track } from '@/lib/track';
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const SLEEP_OPTIONS = [null, 15, 30] as const;
@@ -38,6 +39,10 @@ export default function Player() {
   const finished = total > 0 && elapsed >= total;
   const sleptOut = sleepLeft !== null && sleepLeft <= 0;
   const isPlaying = playing && !finished && !sleptOut;
+
+  useEffect(() => {
+    if (id) track('content_opened', id);
+  }, [id]);
 
   useEffect(() => {
     if (!isPlaying) return;

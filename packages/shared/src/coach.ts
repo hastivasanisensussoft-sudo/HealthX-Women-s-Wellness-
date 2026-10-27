@@ -13,6 +13,8 @@ export interface CoachReply {
   text: string;
   bullets?: string[];
   suggestions: string[];
+  /** Observations from the person's own logs (only with AI-personalisation consent). */
+  personal?: string[];
 }
 
 export const COACH_STARTERS = [
@@ -37,6 +39,17 @@ const EMERGENCY = [
   'seizure',
   'bleeding during pregnancy',
   'pregnant and bleeding',
+  'heavy bleeding',
+  'overdose',
+  'want to die',
+  'end my life',
+  'hurt myself',
+  'stroke',
+  'severe pain',
+  'passed out',
+  'not breathing',
+  'allergic reaction',
+  'baby not moving',
 ];
 const DIAGNOSIS = ['do i have', 'diagnose', 'pcos', 'endometriosis', 'infertile', 'infertility', 'am i pregnant', 'is it cancer', 'what condition', 'hormonal imbalance'];
 const MEDICATION = ['prescription', 'medication', 'dosage', 'dose of', 'which pill', 'antibiotic', 'should i take'];
@@ -44,7 +57,32 @@ const CONTRACEPTION = ['safe day', 'safe days', 'avoid pregnancy', 'contracept',
 
 const has = (t: string, words: string[]) => words.some((w) => t.includes(w));
 
-export function simulateCoachReply(input: string): CoachReply {
+/**
+ * What the coach may use from the person's own logs. Only built when they turned on AI personalisation
+ * (§35, consent-controlled); otherwise answers stay general. Summaries only — no diagnosis.
+ */
+export interface CoachContext {
+  avgSleepHours: number | null;
+  sleepTargetHours: number;
+  avgEnergy: number | null;
+  hydrationPct: number;
+  workouts7d: number;
+}
+
+export function simulateCoachReply(input: string, ctx?: CoachContext | null): CoachReply {
+  const reply = baseReply(input);
+  if (!ctx || reply.kind !== 'educational') return reply;
+  const t = input.toLowerCase();
+  const notes: string[] = [];
+  if (has(t, ['sleep', 'tired', 'fatigue', 'energy', 'exhausted', 'insomnia']) && ctx.avgSleepHours !== null)
+    notes.push(`From your logs: about ${ctx.avgSleepHours} h of sleep a night this week (your goal is ${ctx.sleepTargetHours} h).`);
+  if (has(t, ['tired', 'fatigue', 'energy', 'exhausted']) && ctx.avgEnergy !== null) notes.push(`Your check-in energy averaged ${ctx.avgEnergy} / 10 this week.`);
+  if (has(t, ['tired', 'fatigue', 'energy', 'hydrat', 'water'])) notes.push(`You reached about ${ctx.hydrationPct}% of your water goal this week.`);
+  if (has(t, ['workout', 'exercise', 'beginner', 'training'])) notes.push(`You logged ${ctx.workouts7d} workout${ctx.workouts7d === 1 ? '' : 's'} in the last 7 days.`);
+  return notes.length ? { ...reply, personal: notes } : reply;
+}
+
+function baseReply(input: string): CoachReply {
   const t = input.toLowerCase();
 
   if (has(t, EMERGENCY)) {

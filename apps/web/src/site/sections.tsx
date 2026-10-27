@@ -156,7 +156,7 @@ export function Hero() {
               Period tracking, daily check-ins, movement, nutrition, sleep and gentle insights in one calm place — with estimates that are clearly labelled and data that stays yours.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink to="/signup" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+              <ButtonLink to="/get-the-app" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
                 Start free
               </ButtonLink>
               <a href="#how" className="glass-dark inline-flex h-[52px] items-center gap-2 rounded-full px-6 font-semibold text-white transition hover:bg-white/15">
@@ -528,7 +528,7 @@ export function HowItWorks({ heading = true }: { heading?: boolean }) {
             ))}
           </ol>
           <div className="mt-8 flex flex-wrap items-center gap-4">
-            <ButtonLink to="/signup" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+            <ButtonLink to="/get-the-app" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
               Start your journey
             </ButtonLink>
             <span className="font-script text-[26px] font-bold text-green-600">about a minute to set up</span>
@@ -799,7 +799,7 @@ export function Pricing() {
                 </li>
               ))}
             </ul>
-            <ButtonLink to="/signup" size="lg" className="mt-8 w-full">
+            <ButtonLink to="/get-the-app" size="lg" className="mt-8 w-full">
               Get started free
             </ButtonLink>
           </div>
@@ -921,7 +921,7 @@ export function Newsletter() {
           </h2>
           <p className="mt-3 max-w-md text-white/75">Free for core tracking. Set up in about a minute, and keep full control of your data.</p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <ButtonLink to="/signup" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
+            <ButtonLink to="/get-the-app" variant="butter" size="lg" rightIcon={<ArrowRight className="h-5 w-5" />}>
               Create free account
             </ButtonLink>
             <ButtonLink to="/features" variant="ghost" size="lg" className="text-white ring-1 ring-inset ring-white/25 hover:bg-white/10">

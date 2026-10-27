@@ -1,5 +1,8 @@
-/** Insights (SRS §17, §36, §37, §61): forest summary hero, rule-based observed patterns, trend charts, report scopes and the score breakdown. */
-import { COPY, computeInsights, dailySeries, formatDate, wellnessScore, weeklySummary } from '@healthx/shared';
+/**
+ * Insights (SRS §17, §36, §37, §61): forest summary hero, rule-based observed patterns, trend charts, report scopes and the score breakdown.
+ * Phase-1 insights, trends and the weekly report are free; Phase-2 insight rules are Premium (advanced insights).
+ */
+import { COPY, computeInsights, dailySeries, formatDate, wellnessScore, weeklySummary, type Insight } from '@healthx/shared';
 import { useLocalSearchParams } from 'expo-router';
 import { ChevronRight, Droplets, Footprints, Lightbulb, Moon, Smile, Zap, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -10,6 +13,7 @@ import { BarChart, LineChart, ProgressRing } from '@/components/Charts';
 import { EmptyState, SkeletonList } from '@/components/Feedback';
 import { InsightCard } from '@/components/InsightCard';
 import { Chip, Segmented } from '@/components/Inputs';
+import { PremiumGate, usePremium } from '@/components/PremiumGate';
 import { ScoreBreakdown } from '@/components/ScoreBreakdown';
 import { Screen } from '@/components/Screen';
 import { AppText } from '@/components/Text';
@@ -38,7 +42,22 @@ export default function InsightsTab() {
   const [range, setRange] = useState<7 | 14 | 30>(14);
   const [period, setPeriod] = useState<ReportPeriod>('weekly');
   const loading = useDemoLoading(450);
+  const premium = usePremium();
   const insights = useMemo(() => computeInsights(state), [state]);
+  // Phase-2 rules (patterns across cycles) are advanced insights — Premium.
+  const basic = useMemo(() => insights.filter((i) => i.phase !== 2), [insights]);
+  const locked = premium ? 0 : insights.length - basic.length;
+  const shown = premium ? insights.length : basic.length;
+  const insightCard = (i: Insight) => (
+    <InsightCard
+      key={i.id}
+      insight={i}
+      onDismiss={() => {
+        dispatch({ type: 'DISMISS_INSIGHT', id: i.id });
+        toast('Insight dismissed', 'info');
+      }}
+    />
+  );
   const series = useMemo(() => dailySeries(state, range), [state, range]);
   const week = useMemo(() => weeklySummary(state), [state]);
   const score = useMemo(() => wellnessScore(state), [state]);
@@ -95,19 +114,17 @@ export default function InsightsTab() {
         ) : tab === 'insights' ? (
           <View style={{ gap: 12 }}>
             <AppText variant="overline" color={palette.green[700]}>
-              {insights.length ? `${insights.length} observed pattern${insights.length === 1 ? '' : 's'}` : 'Observed patterns'}
+              {shown ? `${shown} observed pattern${shown === 1 ? '' : 's'}` : 'Observed patterns'}
+              {locked ? ` · ${locked} more with Premium` : ''}
             </AppText>
             {insights.length ? (
-              insights.map((i) => (
-                <InsightCard
-                  key={i.id}
-                  insight={i}
-                  onDismiss={() => {
-                    dispatch({ type: 'DISMISS_INSIGHT', id: i.id });
-                    toast('Insight dismissed', 'info');
-                  }}
-                />
-              ))
+              locked ? (
+                <PremiumGate feature="advanced_insights" compact preview={basic.map((i) => insightCard(i))}>
+                  {insights.map((i) => insightCard(i))}
+                </PremiumGate>
+              ) : (
+                insights.map((i) => insightCard(i))
+              )
             ) : (
               <Card tone="mint">
                 <EmptyState icon={Lightbulb} title="No insights right now" text="Keep logging check-ins, sleep and activity — patterns appear after a few days." />

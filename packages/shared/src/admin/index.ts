@@ -2,3 +2,4 @@
 export * from './rbac';
 export * from './data';
 export * from './state';
+export * from './appUsers';
