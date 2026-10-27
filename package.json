@@ -1,0 +1,18 @@
+{
+  "name": "healthx-womens-wellness",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HealthX Women’s Wellness — web + mobile frontend and a minimal in-memory API (auth, roles, owner-only data, content workflow; no database).",
+  "scripts": {
+    "install:all": "npm --prefix apps/web install && npm --prefix apps/mobile install && npm --prefix apps/api install",
+    "dev": "node scripts/dev.mjs",
+    "api": "npm --prefix apps/api run dev",
+    "api:test": "npm --prefix apps/api test",
+    "api:typecheck": "npm --prefix apps/api run typecheck",
+    "web": "npm --prefix apps/web run dev",
+    "web:build": "npm --prefix apps/web run build",
+    "web:typecheck": "npm --prefix apps/web run typecheck",
+    "mobile": "npm --prefix apps/mobile run start",
+    "mobile:web": "npm --prefix apps/mobile run web"
+  }
+}

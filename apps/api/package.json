@@ -1,0 +1,18 @@
+{
+  "name": "@healthx/api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HealthX API (minimal, in-memory): authentication, sessions, staff MFA, 7-role server-side authorization, owner-only user data, content workflow and audit log. No database — data resets on restart.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,205 @@
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/outfit';
+@import '@fontsource/dm-mono/400.css';
+@import '@fontsource/dm-mono/500.css';
+@import '@fontsource/caveat/500.css';
+@import '@fontsource/caveat/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* HealthX "Evergreen" design system — see docs/design/healthx-design-system.md. */
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-white font-sans text-[16px] text-ink-900;
+    font-optical-sizing: auto;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  ::selection {
+    @apply bg-green-200 text-green-950;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-green-500 ring-offset-2;
+  }
+  input[type='number']::-webkit-inner-spin-button {
+    opacity: 0.4;
+  }
+}
+
+@layer components {
+  /* Surfaces */
+  .card {
+    @apply min-w-0 rounded-2xl border border-ink-100/80 bg-white shadow-card;
+  }
+  .card-pad {
+    @apply p-5 sm:p-6;
+  }
+  .card-soft {
+    @apply min-w-0 rounded-2xl bg-white/70 ring-1 ring-ink-100;
+  }
+  .panel-mint {
+    @apply rounded-2xl bg-gradient-to-br from-green-50 to-mint;
+  }
+  .glass {
+    @apply border border-white/60 bg-white/[0.82] backdrop-blur-xl;
+  }
+  .glass-dark {
+    @apply border border-white/15 bg-green-950/35 text-white backdrop-blur-xl;
+  }
+
+  /* Type helpers */
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-ink-700;
+  }
+  .eyebrow {
+    @apply inline-flex items-center gap-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.16em] text-green-700;
+  }
+  .heading-xl {
+    @apply font-display text-[40px] font-semibold leading-[1.05] tracking-[-0.02em] text-ink-900 sm:text-[52px] lg:text-[62px];
+  }
+  .heading-lg {
+    @apply font-display text-[30px] font-semibold leading-tight tracking-[-0.015em] text-ink-900 sm:text-[38px];
+  }
+  .heading-md {
+    @apply font-display text-[22px] font-semibold leading-snug tracking-[-0.01em] text-ink-900;
+  }
+  .num {
+    @apply font-display font-semibold tabular-nums tracking-tight;
+  }
+
+  /* Controls */
+  .input {
+    @apply h-12 w-full rounded-xl border border-ink-200 bg-white px-4 text-[15px] text-ink-900 shadow-xs placeholder:text-ink-400 transition focus:border-green-500 focus:outline-none focus:ring-4 focus:ring-green-500/15 disabled:cursor-not-allowed disabled:bg-ink-50;
+  }
+  .input-error {
+    @apply border-danger focus:border-danger focus:ring-danger/15;
+  }
+  .chip {
+    @apply inline-flex min-h-[38px] items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition;
+  }
+  .pill-tab {
+    @apply inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold transition;
+  }
+  .pill-tab-on {
+    @apply bg-green-800 text-white shadow-sm;
+  }
+  .pill-tab-off {
+    @apply bg-white text-ink-600 ring-1 ring-ink-100 hover:text-ink-900 hover:ring-ink-200;
+  }
+
+  /* Shapes (reference: Mira arch portrait, Balanza arch photo, leaf shapes) */
+  /* Elliptical percentages instead of 999px: huge radii make browsers scale every corner down,
+     which squared off the 28px bottom corners on tall arches. */
+  .arch {
+    border-radius: 50% 50% 28px 28px / 36% 36% 28px 28px;
+  }
+  /* Always-dark panels (sidebars): white overlays, rings and borders mean real white in every theme and mode. */
+  .on-forest {
+    --c-white: 255 255 255;
+  }
+  /* A light card or popover inside an .on-forest panel goes back to the theme's card surface. */
+  .surface-reset {
+    --c-white: var(--c-surface, 255 255 255);
+  }
+  .arch-full {
+    border-radius: 999px 999px 0 0;
+  }
+  .leaf {
+    border-radius: 0 72% 0 72%;
+  }
+  .leaf-alt {
+    border-radius: 72% 0 72% 0;
+  }
+  .blob {
+    border-radius: 58% 42% 46% 54% / 46% 54% 46% 54%;
+  }
+
+  /* Backgrounds */
+  .bg-wash {
+    background:
+      radial-gradient(60% 50% at 0% 0%, rgb(var(--c-green-200) / 0.55), transparent 70%),
+      radial-gradient(50% 45% at 100% 10%, rgb(var(--c-rose-100) / 0.55), transparent 70%),
+      radial-gradient(60% 60% at 50% 100%, rgb(var(--c-lavender-100) / 0.45), transparent 70%), rgb(var(--c-canvas));
+  }
+  .bg-forest {
+    background:
+      radial-gradient(70% 60% at 85% 10%, rgb(var(--c-green-400) / 0.28), transparent 60%),
+      radial-gradient(60% 60% at 0% 100%, rgb(var(--c-butter-400) / 0.12), transparent 60%), rgb(var(--c-green-900));
+  }
+  .dotted-bg {
+    background-image: radial-gradient(theme('colors.green.200') 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+
+  /* Misc */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.ink.200') transparent;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .snap-row {
+    @apply no-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-1;
+  }
+  .snap-row > * {
+    @apply snap-start;
+  }
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-ink-100;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-[shimmer_1.4s_infinite] bg-gradient-to-r from-transparent via-white/70 to-transparent;
+  }
+}
+
+/* Branded range slider: set --c (colour) and --p (fill %) inline. */
+input[type='range'].range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--c) 0%, var(--c) var(--p), rgb(var(--c-ink-200)) var(--p), rgb(var(--c-ink-200)) 100%);
+  cursor: pointer;
+}
+input[type='range'].range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgb(var(--c-white));
+  border: 3px solid var(--c);
+  box-shadow: 0 3px 8px rgb(var(--c-green-900) / 0.2);
+}
+input[type='range'].range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgb(var(--c-white));
+  border: 3px solid var(--c);
+  box-shadow: 0 3px 8px rgb(var(--c-green-900) / 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

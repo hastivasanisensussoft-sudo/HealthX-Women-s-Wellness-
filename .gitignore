@@ -1,0 +1,10 @@
+# Private planning docs: kept on this computer only, never committed
+/docs/development-plan/
+
+# Dependencies & build output
+node_modules/
+dist/
+web-build/
+.expo/
+*.tsbuildinfo
+.env*.local

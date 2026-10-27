@@ -1,0 +1,9 @@
+{
+  "name": "@healthx/shared",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Design tokens, domain types, demo cycle/wellness logic and mock data shared by the HealthX web and mobile frontends. Dependency-free TypeScript.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "type": "module"
+}
