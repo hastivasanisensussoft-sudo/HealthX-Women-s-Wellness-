@@ -1,31 +1,36 @@
 /**
- * Onboarding (SRS §8, §10, §61; mockup M06–M10):
- * 1 Welcome → 2 Goals → 3 About you → 4 Consent → 5 Cycle information → notification permission.
+ * Onboarding (SRS §8, §10, §61; mockup M06–M10), in the product owner's flow (2026-10-28):
+ * 1 Welcome (welcome.tsx) → 2 Sign up / Log in → 3 Tell us about yourself → 4 Cycle setup →
+ * 5 Avatar & profile image → 6 Select your goals → 7 Subscription plan → 8 Notification preferences → 9 Home.
+ * This screen runs steps 3–8. Consent closes step 3, so it always comes before any cycle (health) data.
  */
 import {
   COPY,
   COUNTRIES,
   GOALS,
   LANGUAGES,
+  PREMIUM_FEATURES,
   TIMEZONES,
   addDays,
   computeCycleState,
   diffDays,
   formatDate,
+  hasPremium,
   type ActivityLevel,
   type CycleProfile,
   type GoalKey,
   type ISODate,
   type NotificationPrefs,
   type PhotoKey,
+  type PremiumFeature,
   type Regularity,
 } from '@healthx/shared';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Bell, CalendarDays, Camera, Check, ChevronRight, CircleAlert, Droplet, HeartHandshake, ImagePlus, Lock, Repeat, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react-native';
+import { Bell, CalendarDays, Camera, Check, ChevronRight, CircleAlert, Crown, Droplet, ImagePlus, Lock, Repeat, ShieldCheck, SlidersHorizontal, Sprout, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ArchPortrait, Leaf, Sparkle } from '@/components/Art';
+import { ArtFigure, Leaf, Sparkle } from '@/components/Art';
 import { BackendNote, Disclaimer, PhaseBadge } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -40,14 +45,24 @@ import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { KeyIcon } from '@/lib/icons';
 import { requestReminderPermission } from '@/lib/localReminders';
 import { PICK_MESSAGES, useProfilePhoto, type PhotoSource } from '@/lib/profilePhoto';
-import { useStore } from '@/lib/store';
+import { errorMessage, useStore } from '@/lib/store';
+import { useDeviceData } from '@/lib/useDeviceData';
 import { brandText, colors, font, onDark, palette, shadow } from '@/lib/theme';
+import { WELCOME_ART } from '@/lib/welcomeArt';
 import { useToast } from '@/lib/toast';
 
-// Steps: welcome · goals · about you · consent · cycle, then notification permission.
-// Consent comes before any cycle (health) data is asked for — same order as the web app.
-const TOTAL = 5;
-const AVATARS: PhotoKey[] = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4'];
+// This screen's steps, in order. The whole flow has 9 steps; this screen starts at step 3.
+const ABOUT = 0;
+const CYCLE = 1;
+const AVATAR = 2;
+const GOAL_STEP = 3;
+const PLAN = 4;
+const NOTIFY = 5;
+const FLOW_TOTAL = 9;
+const FIRST_FLOW_STEP = 3;
+
+/** The illustrated avatars people can pick (lib/photos). */
+const AVATARS: PhotoKey[] = ['avatar-art-1', 'avatar-art-2', 'avatar-art-3', 'avatar-art-4', 'avatar-art-5'];
 const ACTIVITY: { key: ActivityLevel; label: string }[] = [
   { key: 'sedentary', label: 'Low' },
   { key: 'light', label: 'Light' },
@@ -60,6 +75,9 @@ const REMINDERS: { key: 'cycle' | 'habit' | 'hydration'; label: string }[] = [
   { key: 'hydration', label: 'Hydration reminders' },
 ];
 const GOAL_TINTS = [palette.green, palette.rose, palette.lavender, palette.peach, palette.sky, palette.indigo] as const;
+/** What each plan includes — the same lists as the Premium screen. */
+const FREE_FEATURES = ['Period & symptom tracking', 'Basic wellness tracking & weekly summary', 'Educational library', 'Privacy controls'];
+const PREMIUM_ORDER: PremiumFeature[] = ['advanced_insights', 'advanced_reports', 'advanced_cycle_history', 'coach', 'nutrition', 'programs', 'themes'];
 
 function detectTimezone(): string {
   try {
@@ -113,18 +131,55 @@ function ErrorText({ text }: { text?: string }) {
   );
 }
 
+/** A selectable plan: icon, name, a tag, a one-line summary and what it includes. */
+function PlanCard({ icon: Icon, title, tag, summary, features, selected, onPress, tint }: { icon: LucideIcon; title: string; tag?: string; summary: string; features: string[]; selected: boolean; onPress: () => void; tint: string }) {
+  return (
+    <Pressable accessibilityRole="radio" aria-checked={selected} accessibilityLabel={`${title} plan. ${summary}`} onPress={onPress} style={({ pressed }) => [styles.plan, selected && styles.planOn, pressed && { transform: [{ scale: 0.99 }] }]}>
+      <View style={styles.planHead}>
+        <View style={[styles.planIcon, { backgroundColor: selected ? colors.surface : palette.ink[50] }]}>
+          <Icon size={20} color={tint} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <AppText variant="h3">{title}</AppText>
+            {tag ? (
+              <View style={styles.planTag}>
+                <AppText variant="overline" color={palette.green[950]} style={{ fontSize: 9.5 }}>
+                  {tag}
+                </AppText>
+              </View>
+            ) : null}
+          </View>
+          <AppText variant="caption" muted style={{ marginTop: 2 }}>
+            {summary}
+          </AppText>
+        </View>
+        <View style={[styles.radio, selected && styles.radioOn]}>{selected ? <View style={styles.radioDot} /> : null}</View>
+      </View>
+      <View style={{ gap: 6, marginTop: 12 }}>
+        {features.map((f) => (
+          <View key={f} style={styles.planRow}>
+            <Check size={14} color={palette.green[700]} strokeWidth={2.6} />
+            <AppText variant="small" style={{ flex: 1 }}>
+              {f}
+            </AppText>
+          </View>
+        ))}
+      </View>
+    </Pressable>
+  );
+}
+
 export default function Onboarding() {
-  const { state, dispatch, mode } = useStore();
+  const { state, dispatch, mode, account } = useStore();
   const toast = useToast();
   const params = useLocalSearchParams<{ name?: string }>();
   const today = state.today;
-  // 0 welcome · 1 goals · 2 about you · 3 consent · 4 cycle · 5 notification permission
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(ABOUT);
 
   const [goals, setGoals] = useState<GoalKey[]>(['understand_cycle']);
   const [name, setName] = useState(params.name || state.profile.name || '');
   const [avatar, setAvatar] = useState<PhotoKey | undefined>(undefined);
-  const [avatarOpen, setAvatarOpen] = useState(false);
   const photo = useProfilePhoto();
   const [asking, setAsking] = useState(false);
   const [dob, setDob] = useState({ d: '', m: '', y: '' });
@@ -144,6 +199,12 @@ export default function Onboarding() {
   const [periodLen, setPeriodLen] = useState<number | null>(5);
   const [regularity, setRegularity] = useState<Regularity>('regular');
 
+  const premiumOn = hasPremium(state.profile.plan);
+  const [planChoice, setPlanChoice] = useState<'free' | 'premium'>('free');
+  const [planBusy, setPlanBusy] = useState(false);
+  // The trial's end, remembered on this phone for the Premium screen (the server owns the trial itself).
+  const trial = useDeviceData<{ endsAt: string } | null>('trial', null);
+
   const [consents, setConsents] = useState<Record<string, boolean>>({
     health_processing: true,
     notifications: true,
@@ -158,11 +219,11 @@ export default function Onboarding() {
     () => computeCycleState([], { lastPeriodStart: null, typicalCycleLength: null, typicalPeriodLength: null, regularity: 'not_sure' }, today),
     [today],
   );
-  const skipCycle = goals.some((g) => g === 'menopause' || g === 'pregnancy_wellness');
   const tzOptions = useMemo(
     () => [{ key: autoTz, label: `${autoTz} (auto)` }, ...TIMEZONES.filter((t) => t !== autoTz).map((t) => ({ key: t, label: t }))],
     [autoTz],
   );
+  const firstName = name.trim().split(' ')[0];
 
   const dobISO = (): ISODate | null => {
     const d = Number(dob.d);
@@ -177,8 +238,7 @@ export default function Onboarding() {
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
-    if (step === 1 && goals.length === 0) e.goals = 'Choose at least one goal — you can change these later.';
-    if (step === 2) {
+    if (step === ABOUT) {
       if (name.trim().length < 2) e.name = 'Please enter your name.';
       const iso = dobISO();
       if (!iso) e.dob = 'Enter a valid date of birth.';
@@ -187,7 +247,8 @@ export default function Onboarding() {
       if (height && (Number(height) < 120 || Number(height) > 220)) e.height = 'Use 120–220 cm.';
       if (weight && (Number(weight) < 30 || Number(weight) > 250)) e.weight = 'Use 30–250 kg.';
     }
-    if (step === 4 && !skipCycle && !lastUnknown && !lastStart) e.last = 'Pick the first day of your last period, or choose “I don’t remember”.';
+    if (step === CYCLE && !lastUnknown && !lastStart) e.last = 'Pick the first day of your last period, or choose “I don’t remember”.';
+    if (step === GOAL_STEP && goals.length === 0) e.goals = 'Choose at least one goal — you can change these later.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -226,19 +287,44 @@ export default function Onboarding() {
       types[k] = { ...types[k], enabled: allowNotifications && chosen };
     });
     dispatch({ type: 'UPDATE_NOTIFICATION_PREFS', prefs: { ...prefs, types } });
-    toast(allowNotifications ? `Welcome to HealthX, ${name.trim().split(' ')[0]}! Reminders are on.` : `Welcome to HealthX, ${name.trim().split(' ')[0]}!`);
+    toast(allowNotifications ? `Welcome to HealthX, ${firstName}! Reminders are on.` : `Welcome to HealthX, ${firstName}!`);
     router.replace('/home');
+  };
+
+  /** Step 7: the 7-day trial is granted by the server (once per account); Free needs nothing. */
+  const choosePlan = async () => {
+    if (planChoice === 'free' || premiumOn) return setStep(NOTIFY);
+    setPlanBusy(true);
+    try {
+      const r = await account.startTrial();
+      trial.set(r.trialEndsAt ? { endsAt: r.trialEndsAt } : null);
+      toast('Your 7-day free trial has started — nothing is charged.');
+      setStep(NOTIFY);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    } finally {
+      setPlanBusy(false);
+    }
   };
 
   const next = () => {
     if (!validate()) return;
     setErrors({});
+    if (step === PLAN) return void choosePlan();
     setStep((s) => s + 1);
   };
   const back = () => {
     setErrors({});
-    if (step === 0) router.back();
-    else setStep((s) => s - 1);
+    setStep((s) => Math.max(ABOUT, s - 1));
+  };
+  /** Skipping the cycle step saves "not known" — never an assumed 28/29-day cycle. */
+  const skipCycle = () => {
+    setLastUnknown(true);
+    setCycleLen(null);
+    setPeriodLen(null);
+    setRegularity('not_sure');
+    setErrors({});
+    setStep(AVATAR);
   };
   const toggleGoal = (g: GoalKey) => setGoals((gs) => (gs.includes(g) ? gs.filter((x) => x !== g) : [...gs, g]));
   const num = (v: string) => v.replace(/[^\d]/g, '').slice(0, 3);
@@ -251,12 +337,21 @@ export default function Onboarding() {
         return n;
       });
   };
+  const header = (
+    <StepHeader
+      step={step + FIRST_FLOW_STEP}
+      total={FLOW_TOTAL}
+      onBack={step > ABOUT ? back : undefined}
+      onSkip={step === CYCLE ? skipCycle : step === AVATAR || step === GOAL_STEP ? () => setStep((s) => s + 1) : undefined}
+    />
+  );
 
-  // ── Notification permission (mockup M10) ─────────────────────────────
-  if (step === 5) {
+  // ── Step 8: notification preferences (mockup M10) ─────────────────────
+  if (step === NOTIFY) {
     return (
       <Screen>
-        <View style={{ alignItems: 'center', marginTop: 36 }}>
+        {header}
+        <View style={{ alignItems: 'center', marginTop: 12 }}>
           <View style={styles.bellArt}>
             <View style={styles.bellOuter} />
             <Leaf size={64} color={palette.rose[200]} rotate={-20} style={{ left: 2, top: 10 }} />
@@ -267,7 +362,7 @@ export default function Onboarding() {
             </View>
           </View>
           <AppText variant="overline" color={palette.green[700]} style={{ marginTop: 18 }}>
-            Last step
+            Notification preferences
           </AppText>
           <AppText variant="display" center style={{ marginTop: 6 }}>
             Gentle reminders that help
@@ -315,149 +410,29 @@ export default function Onboarding() {
     );
   }
 
+  const footerLabel =
+    step === ABOUT ? 'Agree & continue' : step === PLAN ? (premiumOn ? 'Continue' : planChoice === 'premium' ? 'Start 7-day free trial' : 'Continue with Free') : 'Continue';
+
   return (
     <Screen
       footer={
         <Button
-          label={step === 0 ? 'Get started' : step === 3 ? 'Agree & continue' : 'Continue'}
-          iconRight={step === 3 ? undefined : ChevronRight}
-          icon={step === 3 ? ShieldCheck : undefined}
+          label={footerLabel}
+          iconRight={step === ABOUT ? undefined : ChevronRight}
+          icon={step === ABOUT ? ShieldCheck : undefined}
           size="lg"
           full
+          loading={planBusy}
           onPress={next}
         />
       }>
-      {step > 0 ? (
-        <StepHeader
-          step={step + 1}
-          total={TOTAL}
-          onBack={back}
-          onSkip={
-            step === 1
-              ? () => setStep(2)
-              : step === 4
-                ? () => {
-                    // Skipping saves "not known" — never an assumed 28/29-day cycle.
-                    setLastUnknown(true);
-                    setCycleLen(null);
-                    setPeriodLen(null);
-                    setRegularity('not_sure');
-                    setStep(5);
-                  }
-                : undefined
-          }
-        />
-      ) : (
-        <StepHeader step={1} total={TOTAL} />
-      )}
+      {header}
 
-      {step === 0 && (
-        <View>
-          <View style={styles.welcomeArt}>
-            <View style={styles.welcomeWash} />
-            <ArchPortrait photo="south-asian-woman" width={176} height={212} plate={palette.butter[300]} leafColors={[palette.rose[300], palette.green[200]]} />
-            <Sparkle size={18} color={palette.butter[400]} style={{ left: 40, top: 70 }} />
-          </View>
-          <AppText variant="overline" color={palette.green[700]} center>
-            Hello{name.trim() ? `, ${name.trim().split(' ')[0]}` : ''}
-          </AppText>
-          <AppText variant="display" center style={{ marginTop: 6 }} accessibilityRole="header">
-            Welcome to HealthX Women’s Wellness
-          </AppText>
-          <AppText variant="body" color={palette.ink[600]} center style={{ marginTop: 8 }}>
-            A calm, private place to understand your cycle and everyday wellness — and to know when to talk to a professional.
-          </AppText>
-          <View style={{ gap: 10, marginTop: 22 }}>
-            {[
-              { icon: Sparkles, title: 'What HealthX does', text: 'Cycle tracking, symptoms, mood, energy, hydration, sleep, fitness and gentle insights — in one place.', tone: 'mint' as const, fg: palette.green[700] },
-              { icon: ShieldCheck, title: 'Our privacy approach', text: 'We only ask for what we need. Your health data is encrypted and never shared with employers.', tone: 'lavender' as const, fg: palette.lavender[600] },
-              { icon: HeartHandshake, title: 'Wellness, not diagnosis', text: COPY.notDiagnostic, tone: 'peach' as const, fg: palette.peach[600] },
-            ].map((b) => (
-              <Card key={b.title} tone={b.tone} style={styles.bullet}>
-                <View style={styles.bulletIcon}>
-                  <b.icon size={20} color={b.fg} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <AppText variant="h3" style={{ fontFamily: font.display, fontSize: 16.5 }}>
-                    {b.title}
-                  </AppText>
-                  <AppText variant="small" color={palette.ink[600]} style={{ marginTop: 2 }}>
-                    {b.text}
-                  </AppText>
-                </View>
-              </Card>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {step === 1 && (
-        <View>
-          <StepTitle eyebrow="Your focus" title="What are your goals?" text="Select all that apply — we’ll personalise your plan." />
-          <View style={styles.goalGrid}>
-            {GOALS.map((g, i) => {
-              const on = goals.includes(g.key);
-              const tint = GOAL_TINTS[i % GOAL_TINTS.length];
-              return (
-                <Pressable
-                  key={g.key}
-                  accessibilityRole="checkbox"
-                  aria-checked={on}
-                  accessibilityLabel={g.label}
-                  onPress={() => toggleGoal(g.key)}
-                  style={({ pressed }) => [styles.goal, on && styles.goalOn, pressed && { transform: [{ scale: 0.98 }] }]}>
-                  <View style={[styles.goalIcon, { backgroundColor: on ? colors.surface : tint[50] }]}>
-                    <KeyIcon name={g.icon} size={19} color={on ? palette.green[700] : tint[600]} />
-                  </View>
-                  <AppText style={[styles.goalLabel, on && { color: brandText }]} numberOfLines={2}>
-                    {g.label}
-                  </AppText>
-                  <AppText variant="caption" color={palette.ink[500]} numberOfLines={2} style={{ marginTop: 2 }}>
-                    {g.description}
-                  </AppText>
-                  {g.phase > 1 ? (
-                    <View style={styles.goalPhase}>
-                      <AppText variant="overline" color={palette.lavender[700]} style={{ fontSize: 9 }}>
-                        Phase {g.phase}
-                      </AppText>
-                    </View>
-                  ) : null}
-                  <View style={[styles.goalCheck, on && styles.goalCheckOn]}>{on ? <Check size={12} color="#fff" strokeWidth={3} /> : null}</View>
-                </Pressable>
-              );
-            })}
-          </View>
-          <ErrorText text={errors.goals} />
-          {goals.some((g) => GOALS.find((x) => x.key === g)!.phase > 1) ? (
-            <Disclaimer style={{ marginTop: 14 }} tone="lavender" text="Some goals belong to modules planned for later phases. We’ll save them and tailor content now; full features arrive later." />
-          ) : null}
-        </View>
-      )}
-
-      {step === 2 && (
+      {/* ── Step 3: tell us about yourself, then consent ───────────────── */}
+      {step === ABOUT && (
         <View style={{ gap: 14 }}>
-          <StepTitle eyebrow="A little about you" title="About you" />
-          <View style={{ alignItems: 'center' }}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Choose a profile photo" onPress={() => setAvatarOpen(true)} style={styles.avatarWrap}>
-              <View style={styles.avatarRing}>
-                {photo.uri ? (
-                  <Photo source={{ uri: photo.uri }} shape="circle" style={styles.avatarImg} />
-                ) : avatar ? (
-                  <Photo photo={avatar} shape="circle" style={styles.avatarImg} />
-                ) : (
-                  <View style={[styles.avatarImg, styles.avatarFallback]}>
-                    <AppText style={styles.avatarInitial}>{(name.trim().charAt(0) || 'H').toUpperCase()}</AppText>
-                  </View>
-                )}
-              </View>
-              <View style={styles.camera}>
-                <Camera size={14} color="#fff" />
-              </View>
-            </Pressable>
-            <AppText variant="caption" color={palette.green[700]} style={{ marginTop: 8 }}>
-              Tap to pick a photo
-            </AppText>
-          </View>
+          <ArtFigure source={WELCOME_ART.hello} height={170} glow={palette.green[50]} decor="hello" light alt="Illustration: a girl waving hello" />
+          <StepTitle eyebrow={firstName ? `Hello, ${firstName}` : 'Hello'} title="Tell us about yourself" text="A few basics so HealthX fits you. Only your name and date of birth are required." />
           <FieldGroup label="Basics">
             <TextField label="Name" value={name} onChangeText={setName} autoCapitalize="words" placeholder="Your name" error={errors.name} />
             <View style={{ gap: 7 }}>
@@ -491,22 +466,77 @@ export default function Onboarding() {
               <Segmented value={activity} onChange={setActivity} options={ACTIVITY} />
             </View>
           </FieldGroup>
+
+          {/* Consent first: agreed here, before the cycle questions on the next step. */}
+          <View style={{ marginTop: 8 }}>
+            <AppText variant="overline" color={palette.green[700]}>
+              Consent first
+            </AppText>
+            <AppText variant="h2" style={{ marginTop: 4 }} accessibilityRole="header">
+              Your privacy, your choice
+            </AppText>
+            <AppText variant="small" color={palette.ink[600]} style={{ marginTop: 4 }}>
+              Agree to continue. You can change these anytime in Privacy & Data.
+            </AppText>
+          </View>
+          <Card tone="mint">
+            <View style={styles.consentHead}>
+              <View style={styles.consentIcon}>
+                <Lock size={15} color={brandText} />
+              </View>
+              <AppText variant="h3" style={{ flex: 1 }}>
+                Required
+              </AppText>
+              <AppText variant="overline" color={palette.green[700]}>
+                Always on
+              </AppText>
+            </View>
+            <ToggleRow title="Terms & Privacy Policy" value disabled onChange={() => undefined} />
+            <ToggleRow title="Process my health data to run the app" subtitle="Needed to store and calculate from what you log." value disabled onChange={() => undefined} last />
+          </Card>
+          <Card>
+            <View style={styles.consentHead}>
+              <View style={[styles.consentIcon, { backgroundColor: palette.lavender[50] }]}>
+                <SlidersHorizontal size={15} color={palette.lavender[600]} />
+              </View>
+              <AppText variant="h3" style={{ flex: 1 }}>
+                Optional
+              </AppText>
+              <AppText variant="overline" color={palette.ink[500]}>
+                Your call
+              </AppText>
+            </View>
+            <ToggleRow
+              title="AI personalisation"
+              subtitle="Let the AI coach use your logs for suggestions."
+              right={<PhaseBadge phase={2} />}
+              value={consents.ai_personalization}
+              onChange={(v) => setConsents({ ...consents, ai_personalization: v })}
+            />
+            <ToggleRow title="Product analytics" subtitle="Which screens and features you use — never your health values." value={consents.analytics} onChange={(v) => setConsents({ ...consents, analytics: v })} />
+            <ToggleRow
+              title="Health integrations"
+              subtitle="Apple Health / Health Connect imports."
+              right={<PhaseBadge phase={2} />}
+              value={consents.health_integrations}
+              onChange={(v) => setConsents({ ...consents, health_integrations: v })}
+              last
+            />
+          </Card>
+          <View style={styles.employer}>
+            <ShieldCheck size={16} color={palette.green[700]} />
+            <AppText variant="caption" color={brandText} style={{ flex: 1, fontSize: 12.5, lineHeight: 18 }}>
+              {COPY.employerPrivacy} HealthX is a wellness app, not a medical device.
+            </AppText>
+          </View>
         </View>
       )}
 
-      {step === 4 && (
+      {/* ── Step 4: cycle setup ────────────────────────────────────────── */}
+      {step === CYCLE && (
         <View style={{ gap: 14 }}>
-          <StepTitle eyebrow="Your cycle" title="Tell us about your cycle" text="Every cycle is different — we never assume 28 days." />
-          {skipCycle ? (
-            <Disclaimer
-              tone="lavender"
-              text={
-                goals.includes('pregnancy_wellness')
-                  ? 'Because you chose pregnancy wellness, you can skip this step — or add the first day of your last period to estimate your pregnancy week. You can add cycle details any time.'
-                  : 'Because you chose menopause, you can skip this step. You can add cycle details any time.'
-              }
-            />
-          ) : null}
+          <StepTitle eyebrow="Cycle setup" title="Tell us about your cycle" text="Every cycle is different — we never assume 28 days." />
+          <Disclaimer tone="lavender" text="Pregnant, in menopause or not having periods right now? Tap Skip — you can add cycle details any time." />
           <View style={styles.cycleCard}>
             <View style={styles.cycleHead}>
               <View style={[styles.cycleIcon, { backgroundColor: palette.rose[50] }]}>
@@ -569,119 +599,161 @@ export default function Onboarding() {
         </View>
       )}
 
-      {step === 3 && (
-        <View>
-          <StepTitle eyebrow="Consent first" title="Your privacy, your choice" text="You can change these anytime in Privacy & Data." />
-          <Card tone="mint" style={{ marginTop: 16 }}>
-            <View style={styles.consentHead}>
-              <View style={styles.consentIcon}>
-                <Lock size={15} color={brandText} />
-              </View>
-              <AppText variant="h3" style={{ flex: 1 }}>
-                Required
-              </AppText>
-              <AppText variant="overline" color={palette.green[700]}>
-                Always on
-              </AppText>
+      {/* ── Step 5: avatar & profile image ─────────────────────────────── */}
+      {step === AVATAR && (
+        <View style={{ gap: 16 }}>
+          <StepTitle eyebrow="Avatar & profile image" title="Choose your profile picture" text="Use your own photo, pick an avatar or keep your initial. You can change it any time." />
+          <View style={{ alignItems: 'center' }}>
+            <View style={styles.bigRing} accessible accessibilityRole="image" accessibilityLabel={photo.uri ? 'Your photo' : avatar ? `Avatar ${avatar.slice(-1)}` : `Your initial, ${(firstName.charAt(0) || 'H').toUpperCase()}`}>
+              {photo.uri ? (
+                <Photo source={{ uri: photo.uri }} shape="circle" style={styles.bigImg} />
+              ) : avatar ? (
+                <Photo photo={avatar} shape="circle" style={styles.bigImg} />
+              ) : (
+                <View style={[styles.bigImg, styles.avatarFallback]}>
+                  <AppText style={styles.avatarInitial}>{(firstName.charAt(0) || 'H').toUpperCase()}</AppText>
+                </View>
+              )}
             </View>
-            <ToggleRow title="Terms & Privacy Policy" value disabled onChange={() => undefined} />
-            <ToggleRow title="Process my health data to run the app" subtitle="Needed to store and calculate from what you log." value disabled onChange={() => undefined} last />
-          </Card>
-          <Card style={{ marginTop: 12 }}>
-            <View style={styles.consentHead}>
-              <View style={[styles.consentIcon, { backgroundColor: palette.lavender[50] }]}>
-                <SlidersHorizontal size={15} color={palette.lavender[600]} />
-              </View>
-              <AppText variant="h3" style={{ flex: 1 }}>
-                Optional
-              </AppText>
-              <AppText variant="overline" color={palette.ink[500]}>
-                Your call
-              </AppText>
-            </View>
-            <ToggleRow
-              title="AI personalisation"
-              subtitle="Let the AI coach use your logs for suggestions."
-              right={<PhaseBadge phase={2} />}
-              value={consents.ai_personalization}
-              onChange={(v) => setConsents({ ...consents, ai_personalization: v })}
-            />
-            <ToggleRow title="Product analytics" subtitle="Which screens and features you use — never your health values." value={consents.analytics} onChange={(v) => setConsents({ ...consents, analytics: v })} />
-            <ToggleRow
-              title="Health integrations"
-              subtitle="Apple Health / Health Connect imports."
-              right={<PhaseBadge phase={2} />}
-              value={consents.health_integrations}
-              onChange={(v) => setConsents({ ...consents, health_integrations: v })}
-              last
-            />
-          </Card>
-          <View style={styles.employer}>
-            <ShieldCheck size={16} color={palette.green[700]} />
-            <AppText variant="caption" color={brandText} style={{ flex: 1, fontSize: 12.5, lineHeight: 18 }}>
-              {COPY.employerPrivacy} HealthX is a wellness app, not a medical device.
-            </AppText>
           </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {(['camera', 'library'] as PhotoSource[]).map((src) => (
+              <Button
+                key={src}
+                label={src === 'camera' ? 'Take photo' : 'Choose photo'}
+                icon={src === 'camera' ? Camera : ImagePlus}
+                variant="soft"
+                style={{ flex: 1 }}
+                onPress={async () => {
+                  const r = await photo.pick(src);
+                  if (r === 'saved') setAvatar(undefined);
+                  else if (r !== 'cancelled') toast(PICK_MESSAGES[r], 'error');
+                }}
+              />
+            ))}
+          </View>
+          <View>
+            <AppText variant="overline" color={brandText} style={{ marginBottom: 10 }}>
+              Or pick an avatar
+            </AppText>
+            <View style={styles.avatarGrid}>
+              {AVATARS.map((a) => {
+                const on = avatar === a && !photo.uri;
+                return (
+                  <Pressable
+                    key={a}
+                    accessibilityRole="radio"
+                    aria-checked={on}
+                    accessibilityLabel={`Avatar ${a.slice(-1)}`}
+                    onPress={() => {
+                      setAvatar(a);
+                      photo.remove();
+                    }}
+                    style={[styles.avatarOption, on && styles.avatarOptionOn]}>
+                    <Photo photo={a} shape="circle" style={{ width: 54, height: 54 }} />
+                    {on ? (
+                      <View style={styles.avatarTick}>
+                        <Check size={11} color="#fff" strokeWidth={3} />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <Button
+            label="Use my initial"
+            variant="secondary"
+            full
+            onPress={() => {
+              setAvatar(undefined);
+              photo.remove();
+            }}
+          />
+          <AppText variant="caption" muted center>
+            Your own photo: {DEVICE_ONLY_NOTE.charAt(0).toLowerCase() + DEVICE_ONLY_NOTE.slice(1)}
+          </AppText>
         </View>
       )}
 
-      <Sheet visible={avatarOpen} onClose={() => setAvatarOpen(false)} title="Profile photo" subtitle="Use your own photo, a sample photo or your initial.">
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-          {(['camera', 'library'] as PhotoSource[]).map((src) => (
-            <Button
-              key={src}
-              label={src === 'camera' ? 'Take photo' : 'Choose photo'}
-              icon={src === 'camera' ? Camera : ImagePlus}
-              variant="soft"
-              style={{ flex: 1 }}
-              onPress={async () => {
-                const r = await photo.pick(src);
-                if (r === 'saved') setAvatarOpen(false);
-                else if (r !== 'cancelled') toast(PICK_MESSAGES[r], 'error');
-              }}
-            />
-          ))}
-        </View>
-        <View style={styles.avatarGrid}>
-          {AVATARS.map((a) => {
-            const on = avatar === a;
-            return (
-              <Pressable
-                key={a}
-                accessibilityRole="radio"
-                aria-selected={on}
-                accessibilityLabel={`Sample photo ${a.slice(-1)}`}
-                onPress={() => {
-                  setAvatar(a);
-                  photo.remove();
-                  setAvatarOpen(false);
-                }}
-                style={[styles.avatarOption, on && styles.avatarOptionOn]}>
-                <Photo photo={a} shape="circle" style={{ width: 66, height: 66 }} />
-                {on ? (
-                  <View style={styles.avatarTick}>
-                    <Check size={11} color="#fff" strokeWidth={3} />
+      {/* ── Step 6: select your goals ──────────────────────────────────── */}
+      {step === GOAL_STEP && (
+        <View>
+          <StepTitle eyebrow="Your focus" title="What are your goals?" text="Select all that apply — we’ll personalise your plan." />
+          <View style={styles.goalGrid}>
+            {GOALS.map((g, i) => {
+              const on = goals.includes(g.key);
+              const tint = GOAL_TINTS[i % GOAL_TINTS.length];
+              return (
+                <Pressable
+                  key={g.key}
+                  accessibilityRole="checkbox"
+                  aria-checked={on}
+                  accessibilityLabel={g.label}
+                  onPress={() => toggleGoal(g.key)}
+                  style={({ pressed }) => [styles.goal, on && styles.goalOn, pressed && { transform: [{ scale: 0.98 }] }]}>
+                  <View style={[styles.goalIcon, { backgroundColor: on ? colors.surface : tint[50] }]}>
+                    <KeyIcon name={g.icon} size={19} color={on ? palette.green[700] : tint[600]} />
                   </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
+                  <AppText style={[styles.goalLabel, on && { color: brandText }]} numberOfLines={2}>
+                    {g.label}
+                  </AppText>
+                  <AppText variant="caption" color={palette.ink[500]} numberOfLines={2} style={{ marginTop: 2 }}>
+                    {g.description}
+                  </AppText>
+                  {g.phase > 1 ? (
+                    <View style={styles.goalPhase}>
+                      <AppText variant="overline" color={palette.lavender[700]} style={{ fontSize: 9 }}>
+                        Phase {g.phase}
+                      </AppText>
+                    </View>
+                  ) : null}
+                  <View style={[styles.goalCheck, on && styles.goalCheckOn]}>{on ? <Check size={12} color="#fff" strokeWidth={3} /> : null}</View>
+                </Pressable>
+              );
+            })}
+          </View>
+          <ErrorText text={errors.goals} />
+          {goals.some((g) => GOALS.find((x) => x.key === g)!.phase > 1) ? (
+            <Disclaimer style={{ marginTop: 14 }} tone="lavender" text="Some goals belong to modules planned for later phases. We’ll save them and tailor content now; full features arrive later." />
+          ) : null}
         </View>
-        <Button
-          label="Use my initial"
-          variant="secondary"
-          full
-          style={{ marginTop: 16 }}
-          onPress={() => {
-            setAvatar(undefined);
-            photo.remove();
-            setAvatarOpen(false);
-          }}
-        />
-        <AppText variant="caption" muted center style={{ marginTop: 12 }}>
-          Your own photo: {DEVICE_ONLY_NOTE.charAt(0).toLowerCase() + DEVICE_ONLY_NOTE.slice(1)}
-        </AppText>
-      </Sheet>
+      )}
+
+      {/* ── Step 7: subscription plan ──────────────────────────────────── */}
+      {step === PLAN && (
+        <View style={{ gap: 12 }}>
+          <StepTitle eyebrow="Subscription plan" title="Choose your plan" text="Start free, or try Premium free for 7 days. No payment details needed." />
+          {premiumOn ? (
+            <Disclaimer tone="lavender" text="Premium is already on for your account. You can manage it any time from Profile → Premium." />
+          ) : (
+            <>
+              <PlanCard
+                icon={Sprout}
+                title="Free"
+                summary="Everything you need to track and understand your cycle."
+                features={FREE_FEATURES}
+                selected={planChoice === 'free'}
+                onPress={() => setPlanChoice('free')}
+                tint={palette.green[700]}
+              />
+              <PlanCard
+                icon={Crown}
+                title="Premium"
+                tag="7 days free"
+                summary="Everything in Free, plus:"
+                features={PREMIUM_ORDER.map((k) => PREMIUM_FEATURES[k].label)}
+                selected={planChoice === 'premium'}
+                onPress={() => setPlanChoice('premium')}
+                tint={palette.butter[600]}
+              />
+            </>
+          )}
+          <AppText variant="caption" muted>
+            The trial ends by itself after 7 days and you move back to Free — nothing renews and nothing is charged. Paid plans arrive with app-store billing. Your logs stay on every plan.
+          </AppText>
+        </View>
+      )}
 
       <Sheet
         visible={dateOpen}
@@ -719,10 +791,6 @@ export default function Onboarding() {
 }
 
 const styles = StyleSheet.create({
-  welcomeArt: { height: 268, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 14 },
-  welcomeWash: { position: 'absolute', bottom: 0, width: 260, height: 200, borderRadius: 130, backgroundColor: palette.green[50] },
-  bullet: { flexDirection: 'row', gap: 14, alignItems: 'flex-start' },
-  bulletIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   goalGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 },
   goal: { width: '47%', flexGrow: 1, minHeight: 128, borderRadius: 22, borderWidth: 1.5, borderColor: palette.ink[200], backgroundColor: colors.surface, padding: 14 },
   goalOn: { backgroundColor: palette.green[50], borderColor: palette.green[600], ...shadow.card },
@@ -734,16 +802,23 @@ const styles = StyleSheet.create({
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   group: { gap: 12, backgroundColor: palette.ink[50], borderRadius: 24, padding: 14, borderWidth: 1, borderColor: palette.ink[100] },
   groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  avatarWrap: { width: 100, height: 100 },
-  avatarRing: { width: 100, height: 100, borderRadius: 50, padding: 4, backgroundColor: palette.green[100] },
-  avatarImg: { width: 92, height: 92, borderRadius: 46 },
+  bigRing: { width: 132, height: 132, borderRadius: 66, padding: 5, backgroundColor: palette.green[100] },
+  bigImg: { width: 122, height: 122, borderRadius: 61 },
   avatarFallback: { backgroundColor: palette.green[700], alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { fontFamily: font.displayBold, fontSize: 36, lineHeight: 42, color: '#fff' },
-  camera: { position: 'absolute', right: 0, bottom: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: palette.green[700], borderWidth: 3, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { fontFamily: font.displayBold, fontSize: 46, lineHeight: 54, color: '#fff' },
   avatarGrid: { flexDirection: 'row', justifyContent: 'space-between' },
-  avatarOption: { padding: 4, borderRadius: 40, borderWidth: 2.5, borderColor: 'transparent' },
+  avatarOption: { padding: 3, borderRadius: 34, borderWidth: 2.5, borderColor: 'transparent' },
   avatarOptionOn: { borderColor: palette.green[700] },
   avatarTick: { position: 'absolute', right: 0, bottom: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: palette.green[700], borderWidth: 2, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  plan: { borderRadius: 24, borderWidth: 1.5, borderColor: palette.ink[200], backgroundColor: colors.surface, padding: 16 },
+  planOn: { borderColor: palette.green[600], backgroundColor: palette.green[50], ...shadow.card },
+  planHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  planTag: { backgroundColor: palette.butter[300], borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  planRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: palette.ink[300], alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  radioOn: { borderColor: palette.green[700] },
+  radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: palette.green[700] },
   cycleCard: { gap: 12, backgroundColor: colors.surface, borderRadius: 24, padding: 16, borderWidth: 1, borderColor: palette.ink[100], ...shadow.card },
   cycleHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cycleIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
@@ -751,7 +826,7 @@ const styles = StyleSheet.create({
   dateFieldOn: { borderColor: palette.green[500], backgroundColor: palette.green[50] },
   consentHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 2 },
   consentIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  employer: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 14, backgroundColor: palette.green[50], borderRadius: 18, padding: 14 },
+  employer: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: palette.green[50], borderRadius: 18, padding: 14 },
   bellArt: { width: 170, height: 170, alignItems: 'center', justifyContent: 'center' },
   bellOuter: { position: 'absolute', width: 170, height: 170, borderRadius: 85, backgroundColor: palette.green[50] },
   bellInner: { width: 92, height: 92, borderRadius: 46, backgroundColor: palette.green[700], alignItems: 'center', justifyContent: 'center', ...shadow.lift },

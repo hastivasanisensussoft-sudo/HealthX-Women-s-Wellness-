@@ -1,6 +1,6 @@
 /**
  * Home — "My Day" (mockup M11, SRS §7/§32/§33; Eva / Mira / Myflo references): illustrated hero with the
- * greeting, glance cards (cycle estimate → the Today screen, mood), illustrated tiles, week strip, quick logs,
+ * greeting, four shortcuts (period, wellness, workouts, nutrition), picture cards, week strip, quick logs,
  * score, check-in, plan, videos, insight, water, reading. The full cycle dial lives on Today and the Cycle tab.
  */
 import {
@@ -10,7 +10,6 @@ import {
   checkInOn,
   computeInsights,
   cycleStateOf,
-  diffDays,
   formatDate,
   greeting,
   moodLabel,
@@ -20,12 +19,31 @@ import {
   waterOn,
   wellnessScore,
   wellnessScoreSeries,
-  type CycleState,
 } from '@healthx/shared';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { Baby, Check, ChevronRight, Droplets, Flower2, Footprints, Lightbulb, Moon, Plus, Salad, Smile, Stethoscope, Zap } from 'lucide-react-native';
+import {
+  Apple,
+  ArrowRight,
+  Baby,
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Droplet,
+  Droplets,
+  Dumbbell,
+  Flower2,
+  Footprints,
+  Lightbulb,
+  Moon,
+  Plus,
+  Salad,
+  Smile,
+  Stethoscope,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,17 +62,17 @@ import { AppText } from '@/components/Text';
 import { QuickTile, TILE_TONES, type TileTone } from '@/components/Tiles';
 import { VideoCard } from '@/components/Video';
 import { VerifyEmailHint } from '@/components/VerifyEmailHint';
-import { phaseText } from '@/lib/cycleText';
 import { useDemoLoading } from '@/lib/hooks';
 import { PICTURES } from '@/lib/pictures';
+import { useProfilePhoto } from '@/lib/profilePhoto';
 import { useStore } from '@/lib/store';
-import { colors, fertile, font, layout, onDark, palette, shadow } from '@/lib/theme';
+import { brandText, colors, font, layout, onDark, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 /** The library article behind the "Period comfort" tile (falls back to the library if it's unpublished). */
 const COMFORT_ARTICLE = 'a_cramps_comfort';
-/** Picture tiles in the "For you" row: width and gap (also the snap interval). */
-const TILE_W = 150;
+/** Picture cards in the "For you" row: width and gap (also the snap interval). */
+const TILE_W = 132;
 const TILE_GAP = 12;
 
 const avg = (xs: (number | null)[]) => {
@@ -65,6 +83,7 @@ const avg = (xs: (number | null)[]) => {
 export default function Home() {
   const { state, dispatch } = useStore();
   const toast = useToast();
+  const photo = useProfilePhoto();
   const insets = useSafeAreaInsets();
   const loading = useDemoLoading(500);
   const cs = useMemo(() => cycleStateOf(state), [state]);
@@ -88,105 +107,43 @@ export default function Home() {
   const done = items.filter((i) => i.done).length;
   const recommended = state.articles.filter((a) => a.status === 'published' && (cs.phase === 'menstrual' ? a.category === 'cycle' : true)).slice(0, 5);
   const insight = insights[0];
-  const days = cs.daysUntilNextPeriod;
   const stage = state.profile.mode;
   const preg = stage === 'pregnancy' ? pregnancyEstimate(state) : null;
   const STAGE_GOALS = { pregnancy_wellness: 'pregnancy', perimenopause: 'perimenopause', menopause: 'menopause' } as const;
   const STAGE_TITLE = { pregnancy: 'Pregnancy wellness', perimenopause: 'Perimenopause', menopause: 'Menopause' } as const;
   // Suggest a life-stage mode only when the person picked it as a goal and is still in cycle mode.
   const suggested = stage === 'cycle' ? state.profile.goals.map((g) => STAGE_GOALS[g as keyof typeof STAGE_GOALS]).find(Boolean) : undefined;
-  // The cycle glance card (pregnancy mode pauses cycle estimates, so it shows the week instead).
-  const glance =
+  // The first shortcut: pregnancy mode pauses period tracking, so it shows the estimated week instead.
+  const firstShortcut: Shortcut =
     stage === 'pregnancy'
-      ? { label: 'Pregnancy', big: preg ? `Week ${preg.weeks}*` : 'Week —', sub: preg ? `+ ${preg.days} days · cycle estimates paused` : 'Add your last period date', open: () => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'pregnancy' } }) }
-      : !cs.hasData
-        ? { label: 'My cycle', big: 'Start here', sub: 'Log your last period to see estimates', open: () => router.push('/log-period') }
-        : {
-            label: 'My cycle',
-            big: `Day ${cs.cycleDay}`,
-            sub: cs.inPeriod
-              ? `Period day ${cs.periodDay}`
-              : cs.isLate
-                ? `${cs.daysLate} ${cs.daysLate === 1 ? 'day' : 'days'} later than estimated*`
-                : days !== null && days >= 0
-                  ? days === 0
-                    ? 'Next period may start today*'
-                    : `Next period in ~${days} ${days === 1 ? 'day' : 'days'}*`
-                  : 'Log more cycles for estimates',
-            open: () => router.push('/today'),
-          };
+      ? { label: 'Pregnancy', hint: preg ? `Week ${preg.weeks}*` : 'Add a date', icon: Baby, tone: 'rose', a11y: preg ? `Pregnancy: estimated week ${preg.weeks}` : 'Pregnancy: add your last period date', open: () => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'pregnancy' } }) }
+      : { label: 'Track Period', hint: 'Log your cycle', icon: Droplet, tone: 'rose', a11y: 'Track period: log your cycle', open: () => router.push('/log-period') };
+  const shortcuts: Shortcut[] = [
+    firstShortcut,
+    { label: 'Wellness', hint: 'Mind & body', icon: Flower2, tone: 'green', a11y: 'Wellness: mind and body', open: () => router.push('/wellness') },
+    { label: 'Workouts', hint: 'Stay active', icon: Dumbbell, rotate: '45deg', tone: 'lavender', a11y: 'Workouts: stay active', open: () => router.push('/fitness') },
+    { label: 'Nutrition', hint: 'Eat healthy', icon: Apple, tone: 'peach', a11y: 'Nutrition: eat healthy', open: () => router.push('/nutrition') },
+  ];
   const comfort = state.articles.find((a) => a.id === COMFORT_ARTICLE && a.status === 'published');
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: layout.tabBarHeight + 24 + insets.bottom }}>
-        <HomeHero date={formatDate(today, 'long')} greeting={`${greeting()}, ${firstName}`} unread={unread}>
-          {loading ? (
-            <View style={{ paddingHorizontal: 16 }}>
-              <SkeletonCard height={116} />
-            </View>
-          ) : (
-            <View style={styles.glance}>
-              <View style={[styles.glanceCard, styles.cycleCard]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${glance.label}: ${glance.big.replace('*', '')}. ${glance.sub.replace('*', '')}${cs.hasData && stage !== 'pregnancy' ? `. ${phaseText(cs)}` : ''}`}
-                  onPress={glance.open}
-                  style={({ pressed }) => [{ flexGrow: 1 }, pressed && { opacity: 0.8 }]}>
-                  <View style={styles.cardHead}>
-                    <AppText style={styles.cardLabel}>{glance.label}</AppText>
-                    <ChevronRight size={15} color={palette.rose[500]} />
-                  </View>
-                  <AppText style={[styles.big, glance.big.length > 8 && { fontSize: 23, lineHeight: 30 }]} numberOfLines={1}>
-                    {glance.big}
-                  </AppText>
-                  <AppText variant="caption" muted numberOfLines={1}>
-                    {glance.sub}
-                  </AppText>
-                  {cs.hasData && stage !== 'pregnancy' ? <PhaseTrack cs={cs} /> : null}
-                </Pressable>
-                {/* In the top-right corner (not under the track) to keep the card short. */}
-                {cs.hasData && stage !== 'pregnancy' ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={cs.inPeriod ? 'Log flow' : 'Log period'}
-                    onPress={() => router.push('/log-period')}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.logChip, pressed && { opacity: 0.8 }]}>
-                    <Plus size={12} color={palette.rose[600]} />
-                    <AppText variant="caption" color={palette.rose[700]} style={{ fontFamily: font.semibold }}>
-                      {cs.inPeriod ? 'Flow' : 'Period'}
-                    </AppText>
-                  </Pressable>
-                ) : null}
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={checkIn ? `Mood: ${moodLabel(checkIn.mood)}. Open mood` : 'Mood: not logged today. Open mood'}
-                onPress={() => router.push('/mood')}
-                style={({ pressed }) => [styles.glanceCard, styles.moodCard, pressed && { opacity: 0.85 }]}>
-                <View style={styles.cardHead}>
-                  <AppText style={styles.cardLabel}>Mood</AppText>
-                  <ChevronRight size={15} color={palette.rose[500]} />
-                </View>
-                <View style={styles.moodRow}>
-                  <MoodFace mood={checkIn?.mood ?? 'good'} size={44} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <AppText style={styles.moodValue} numberOfLines={1}>
-                      {checkIn ? moodLabel(checkIn.mood) : 'Log it'}
-                    </AppText>
-                    <AppText variant="caption" muted numberOfLines={2}>
-                      {checkIn ? 'Today' : 'How are you?'}
-                    </AppText>
-                  </View>
-                </View>
-              </Pressable>
-            </View>
-          )}
-        </HomeHero>
+        <HomeHero date={formatDate(today, 'long')} greeting={`${greeting()}, ${firstName}`} unread={unread} name={state.profile.name} photoUri={photo.uri} avatar={state.profile.avatar} />
 
       <View style={styles.body}>
-      {!loading && cs.hasData && stage !== 'pregnancy' ? <EstimateNote compact style={{ marginTop: 12 }} /> : null}
+      {loading ? (
+        <View style={{ marginTop: 14 }}>
+          <SkeletonCard height={128} />
+        </View>
+      ) : (
+        <View style={styles.shortcuts}>
+          {shortcuts.map((s) => (
+            <ShortcutTile key={s.label} shortcut={s} />
+          ))}
+        </View>
+      )}
+      {!loading && cs.hasData && stage !== 'pregnancy' ? <EstimateNote compact icon={CalendarDays} style={styles.estimate} /> : null}
       <VerifyEmailHint />
 
       {loading ? (
@@ -197,8 +154,15 @@ export default function Home() {
         </View>
       ) : (
         <>
+          {/* Week strip (Mira), above the For you row */}
+          {cs.hasData ? (
+            <View style={styles.week}>
+              <WeekStrip state={cs} periods={state.periods} onSelect={(d) => router.push({ pathname: '/day/[date]', params: { date: d } })} />
+            </View>
+          ) : null}
+
           {/* Every supplied picture in one swipeable row; each opens the screen it illustrates. */}
-          <SectionHeader eyebrow="Swipe for more" title="For you" />
+          <SectionHeader eyebrow="Swipe for more" title="For you" action="See all" onAction={() => router.push('/wellness')} />
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -207,27 +171,22 @@ export default function Home() {
             accessibilityLabel="For you pictures"
             style={styles.picRow}
             contentContainerStyle={styles.picRowContent}>
-            <ArtTile label="Today's cycle" tone="rose" picture={PICTURES.calendarSurprise} a11y="Today's cycle: ring, phase and mood" onPress={() => router.push('/today')} />
-            <ArtTile label="My symptoms" tone="lavender" picture={PICTURES.cramps} a11y="My symptoms" onPress={() => router.push('/symptoms')} />
-            <ArtTile label="My journal" tone="butter" picture={PICTURES.thoughtful} a11y="My journal: today's notes" onPress={() => router.push({ pathname: '/day/[date]', params: { date: today } })} />
+            <ArtTile label="Today's cycle" hint="Your cycle at a glance" tone="rose" picture={PICTURES.calendarSurprise} a11y="Today's cycle: ring, phase and mood" onPress={() => router.push('/today')} />
+            <ArtTile label="My symptoms" hint="Track how you feel" tone="rose" picture={PICTURES.cramps} a11y="My symptoms: track how you feel" onPress={() => router.push('/symptoms')} />
+            <ArtTile label="Mood & energy" hint="Feel your best" tone="butter" picture={PICTURES.thoughtful} position="center" a11y="Mood and energy: log how you feel" onPress={() => router.push('/mood')} />
             <ArtTile
               label="Period comfort"
+              hint="Ideas for cramps"
               tone="rose"
               picture={PICTURES.resting}
               a11y="Period comfort: ideas for cramps"
               onPress={() => (comfort ? router.push({ pathname: '/learn/[id]', params: { id: comfort.id } }) : router.push('/learn'))}
             />
-            <ArtTile label="My mood" tone="lavender" picture={PICTURES.windowDaydream} a11y="My mood: log how you feel" onPress={() => router.push('/mood')} />
-            <ArtTile label="Self-care plan" tone="sky" picture={PICTURES.softerMe} position="center" a11y="Self-care plan: today's plan" onPress={() => router.push('/plan')} />
-            <ArtTile label="My goals" tone="green" picture={PICTURES.highestPriority} position="center" a11y="My goals: I'm my highest priority" onPress={() => router.push('/goals')} />
+            <ArtTile label="My journal" hint="Today's notes" tone="lavender" picture={PICTURES.windowDaydream} a11y="My journal: today's notes" onPress={() => router.push({ pathname: '/day/[date]', params: { date: today } })} />
+            <ArtTile label="Self-care plan" hint="Today's plan" tone="sky" picture={PICTURES.softerMe} position="center" a11y="Self-care plan: today's plan" onPress={() => router.push('/plan')} />
+            <ArtTile label="My goals" hint="You come first" tone="green" picture={PICTURES.highestPriority} position="center" a11y="My goals: I'm my highest priority" onPress={() => router.push('/goals')} />
           </ScrollView>
 
-          {/* Week strip (Mira) */}
-          {cs.hasData ? (
-            <View style={styles.week}>
-              <WeekStrip state={cs} periods={state.periods} onSelect={(d) => router.push({ pathname: '/day/[date]', params: { date: d } })} />
-            </View>
-          ) : null}
 
           {/* Life stage (Phase 3 preview) */}
           {stage !== 'cycle' ? (
@@ -456,49 +415,59 @@ export default function Home() {
   );
 }
 
-/**
- * The cycle as a dotted line: a dot where each estimated phase starts (period, follicular, fertile
- * window, luteal, next period) and a ring for today. Positions are proportional to the estimated length.
- */
-function PhaseTrack({ cs }: { cs: CycleState }) {
-  const L = cs.avgCycleLength ?? 28; // drawing only; never shown as a "28-day assumption"
-  const pos = (day: number) => `${(Math.min(Math.max(day, 1), L) - 1) / (L - 1) * 100}%` as const;
-  const periodLen = Math.min(cs.avgPeriodLength ?? 5, L);
-  const fwStart = cs.fertileWindow && cs.currentCycleStart ? diffDays(cs.currentCycleStart, cs.fertileWindow.start) + 1 : null;
-  const fwEnd = cs.fertileWindow && cs.currentCycleStart ? diffDays(cs.currentCycleStart, cs.fertileWindow.end) + 1 : null;
-  const marks = [
-    { day: 1, color: palette.rose[400] },
-    { day: periodLen + 1, color: palette.sky[300] },
-    ...(fwStart ? [{ day: fwStart, color: fertile[300] }] : []),
-    ...(fwEnd && fwEnd < L ? [{ day: fwEnd + 1, color: palette.lavender[300] }] : []),
-    { day: L, color: palette.rose[300] },
-  ];
+type Shortcut = { label: string; hint: string; icon: LucideIcon; tone: TileTone; a11y: string; open: () => void; rotate?: string };
+
+/** One of the four shortcuts under the hero: a tinted icon, the name, a hint and an arrow. */
+function ShortcutTile({ shortcut: s }: { shortcut: Shortcut }) {
+  const t = TILE_TONES[s.tone];
+  const Icon = s.icon;
   return (
-    <View style={styles.track} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View style={styles.trackLine} />
-      {marks.map((m) => (
-        <View key={m.day} style={[styles.trackDot, { left: pos(m.day), backgroundColor: m.color }]} />
-      ))}
-      <View style={[styles.trackToday, { left: pos(cs.cycleDay ?? 1) }]} />
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={s.a11y}
+      onPress={s.open}
+      style={({ pressed }) => [styles.shortcut, pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 }]}>
+      <View style={[styles.shortcutIcon, { backgroundColor: t.bg }]}>
+        {/* Rotate a wrapper, not the SVG: on web the SVG's own transform is applied twice. */}
+        <View style={s.rotate ? { transform: [{ rotate: s.rotate }] } : undefined}>
+          <Icon size={22} color={t.icon} />
+        </View>
+      </View>
+      <AppText style={styles.shortcutLabel} numberOfLines={1}>
+        {s.label}
+      </AppText>
+      <AppText style={styles.shortcutHint} numberOfLines={1}>
+        {s.hint}
+      </AppText>
+      <ArrowRight size={16} color={brandText} style={{ marginTop: 8 }} />
+    </Pressable>
   );
 }
 
-/** Picture shortcut tile: the picture fills the card, with an uppercase label on a soft pill at the bottom. */
-function ArtTile({ label, tone, picture, position = 'top', a11y, onPress }: { label: string; tone: TileTone; picture: ImageSourcePropType; position?: 'top' | 'center'; a11y: string; onPress: () => void }) {
+/** Picture card: the picture on top, then an uppercase name, a short hint and a round arrow. */
+function ArtTile({ label, hint, tone, picture, position = 'top', a11y, onPress }: { label: string; hint: string; tone: TileTone; picture: ImageSourcePropType; position?: 'top' | 'center'; a11y: string; onPress: () => void }) {
   const t = TILE_TONES[tone];
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={a11y}
       onPress={onPress}
-      style={({ pressed }) => [styles.artTile, { backgroundColor: t.bg, borderColor: t.border }, pressed && { transform: [{ scale: 0.97 }], opacity: 0.92 }]}>
-      <Image source={picture as never} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition={position} transition={250} accessible={false} />
-      {/* Fixed light pill: the pictures are light in both themes. */}
-      <View style={styles.artPill}>
-        <AppText style={[styles.artLabel, { color: palette.green[800] }]} numberOfLines={2}>
+      style={({ pressed }) => [styles.artTile, pressed && { transform: [{ scale: 0.97 }], opacity: 0.92 }]}>
+      <View style={[styles.artPic, { backgroundColor: t.bg }]}>
+        <Image source={picture as never} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition={position} transition={250} accessible={false} />
+      </View>
+      <View style={styles.artText}>
+        <AppText style={[styles.artLabel, { color: brandText }]} numberOfLines={1}>
           {label}
         </AppText>
+        <View style={styles.artFoot}>
+          <AppText style={styles.artHint} numberOfLines={2}>
+            {hint}
+          </AppText>
+          <View style={styles.artArrow}>
+            <ArrowRight size={13} color={brandText} />
+          </View>
+        </View>
       </View>
     </Pressable>
   );
@@ -506,29 +475,26 @@ function ArtTile({ label, tone, picture, position = 'top', a11y, onPress }: { la
 
 const styles = StyleSheet.create({
   stageIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.green[100], alignItems: 'center', justifyContent: 'center' },
-  body: { paddingHorizontal: layout.screenPadding },
-  // Glance cards overlapping the hero
-  glance: { flexDirection: 'row', gap: 10, paddingHorizontal: 16 },
-  glanceCard: { backgroundColor: colors.surface, borderRadius: 22, borderWidth: 1.5, borderColor: palette.rose[100], ...shadow.lift, shadowOpacity: 0.1 },
-  cycleCard: { flex: 1.1, paddingHorizontal: 12, paddingVertical: 11 },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  cardLabel: { fontFamily: font.semibold, fontSize: 13.5, lineHeight: 18, color: colors.text },
-  big: { fontFamily: font.displayBold, fontSize: 28, lineHeight: 33, letterSpacing: -0.6, color: colors.text, marginTop: 2 },
-  track: { height: 18, marginTop: 6, marginHorizontal: 6, justifyContent: 'center' },
-  trackLine: { position: 'absolute', left: 0, right: 0, height: 2, borderRadius: 1, backgroundColor: palette.ink[100] },
-  trackDot: { position: 'absolute', width: 10, height: 10, borderRadius: 5, marginLeft: -5 },
-  trackToday: { position: 'absolute', width: 18, height: 18, borderRadius: 9, marginLeft: -9, borderWidth: 3.5, borderColor: palette.green[600], backgroundColor: colors.surface },
-  logChip: { position: 'absolute', top: 8, right: 8, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: palette.rose[50], borderWidth: 1, borderColor: palette.rose[100] },
-  moodCard: { flex: 0.9, paddingHorizontal: 12, paddingVertical: 11 },
-  moodRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  moodValue: { fontFamily: font.displayBold, fontSize: 18, lineHeight: 23, color: colors.text },
-  // Illustrated tiles
-  // The row bleeds to the screen edges; tiles snap one at a time.
-  picRow: { marginHorizontal: -layout.screenPadding },
-  picRowContent: { gap: TILE_GAP, paddingHorizontal: layout.screenPadding, paddingVertical: 4 },
-  artTile: { width: TILE_W, height: 200, borderRadius: 22, borderWidth: 1, overflow: 'hidden' },
-  artPill: { position: 'absolute', left: 6, right: 6, bottom: 6, paddingVertical: 5, paddingHorizontal: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.88)' },
-  artLabel: { fontFamily: font.displayBold, fontSize: 11, lineHeight: 13.5, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' },
+  // 16 at the sides, like the hero card above.
+  body: { paddingHorizontal: 16 },
+  // Four shortcuts under the hero
+  shortcuts: { flexDirection: 'row', gap: 6, marginTop: 14 },
+  shortcut: { flex: 1, minWidth: 0, alignItems: 'center', paddingTop: 12, paddingBottom: 12, paddingHorizontal: 2, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: palette.ink[100], ...shadow.card },
+  shortcutIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  // 12 px with tight tracking keeps "Track Period" on one line down to 375 px wide screens.
+  shortcutLabel: { fontFamily: font.semibold, fontSize: 12, lineHeight: 16, letterSpacing: -0.3, color: colors.text, textAlign: 'center' },
+  shortcutHint: { fontFamily: font.regular, fontSize: 11, lineHeight: 15, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
+  estimate: { marginTop: 14, paddingVertical: 10, borderRadius: 18, borderStyle: 'solid' },
+  // Picture cards: the row bleeds to the screen edges; cards snap one at a time.
+  picRow: { marginHorizontal: -16 },
+  picRowContent: { gap: TILE_GAP, paddingHorizontal: 16, paddingVertical: 4 },
+  artTile: { width: TILE_W, borderRadius: 20, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: palette.ink[100] },
+  artPic: { height: 120, overflow: 'hidden' },
+  artText: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 10 },
+  artLabel: { fontFamily: font.displayBold, fontSize: 11.5, lineHeight: 15, letterSpacing: 0.4, textTransform: 'uppercase' },
+  artFoot: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  artHint: { flex: 1, fontFamily: font.regular, fontSize: 11, lineHeight: 14.5, color: colors.textMuted },
+  artArrow: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.green[50] },
   week: { marginTop: 16, backgroundColor: colors.surface, borderRadius: 24, padding: 6, borderWidth: 1, borderColor: palette.ink[100], ...shadow.card },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   gridCell: { width: '31%', flexGrow: 1 },

@@ -82,6 +82,43 @@ export function simulateCoachReply(input: string, ctx?: CoachContext | null): Co
   return notes.length ? { ...reply, personal: notes } : reply;
 }
 
+/**
+ * Questions per day per person (A-23 — the real limit and cost controls are set with the AI provider;
+ * this is an example value). Reaching it shows a friendly "come back tomorrow" message.
+ */
+export const COACH_DAILY_LIMIT = 30;
+/** Longest question accepted (characters). */
+export const COACH_MAX_CHARS = 500;
+
+/** Claims an answer must never make (§67, G2): diagnoses, medication, confirmed ovulation, contraception. */
+const PROHIBITED: RegExp[] = [
+  /\byou (?:have|probably have|likely have|might have|may have) (?:pcos|endometriosis|infertility|a hormonal imbalance|cancer|an infection)\b/i,
+  /\byou(?:'re| are) (?:pregnant|infertile|ovulating)\b/i,
+  /\b(?:confirm(?:s|ed)?|confirming) (?:that )?(?:you )?ovulat/i,
+  /\b(?:safe days?|safe to have unprotected)\b/i,
+  /\btake \d+(?:\.\d+)? ?(?:mg|mcg|ml|tablets?|pills?)\b/i,
+  /\b(?:prescribe|prescription for)\b/i,
+];
+
+/**
+ * Output filter (P2-01): every answer — simulated today, from an AI provider later — passes through
+ * here before it is shown. An answer with a prohibited claim is replaced, never shown in part.
+ */
+export function filterCoachReply(reply: CoachReply): CoachReply {
+  // Declines and emergency redirects are fixed safety copy; only answers are checked.
+  if (reply.kind !== 'educational') return reply;
+  // Negated statements ("HealthX can't confirm ovulation") are safe, so they're removed before checking.
+  const all = [reply.text, ...(reply.bullets ?? []), ...(reply.personal ?? [])]
+    .join('\n')
+    .replace(/\b(?:not|never|can't|cannot|can not|doesn't|does not|won't|isn't|is not)\b[^.\n]*/gi, '');
+  if (!PROHIBITED.some((re) => re.test(all))) return reply;
+  return {
+    kind: 'declined',
+    text: "I can't give a diagnosis, medication advice or confirm ovulation. A qualified healthcare professional can help with that — I'm happy to share general wellness information instead.",
+    suggestions: ['How do I prepare for a doctor visit?', 'Sleep tips'],
+  };
+}
+
 function baseReply(input: string): CoachReply {
   const t = input.toLowerCase();
 

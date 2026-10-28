@@ -1,29 +1,61 @@
 /**
- * Life-stage modes (Phase 3 preview): Pregnancy (§22–§23), Perimenopause (§24), Menopause (§25).
+ * Life-stage modes: Pregnancy (§22–§23), Perimenopause (§24), Menopause (§25), on the P3-00 framework.
+ * - Entering or leaving a mode is confirmed first, with the mode's disclaimer; history is never lost.
  * - Pregnancy week: counted from the first day of the last period saved to the account (D-21, decided
- *   2026-10-27); due date = that date + 40 weeks, shown as an estimate. Appointments are dated reminders.
+ *   2026-10-27); due date = that date + 40 weeks, shown as an estimate. The week guide is general
+ *   education; urgent warning signs lead to care, never to the AI. Appointments are dated reminders.
  * - Perimenopause / menopause dashboard: share of target over the last 7 days (D-36, decided 2026-10-27).
+ *   Hot flashes and night sweats are symptom logs with an intensity; the start time is kept in the note.
  * - Weight history and questions for a provider stay on this phone (the API can't store them yet).
  */
 import {
   COPY,
   activeMinOn,
   addDays,
+  cycleStateOf,
   dailySymptomCounts,
   formatClock,
   formatDate,
+  hotFlashNote,
+  hotFlashTime,
   lastPeriodStartOf,
   pregnancyEstimate,
+  pregnancyGuideFor,
+  recentCycleLengths,
   sleepHoursOn,
   stageDashboard,
   waterOn,
   type ISODate,
   type LifeStageMode,
+  type Severity,
   type VideoKey,
 } from '@healthx/shared';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Baby, CalendarClock, CalendarDays, Check, Droplets, Dumbbell, Flame, HeartPulse, MessageSquareText, Moon, Plus, Salad, Scale, Smile, Thermometer, Trash2, Zap, type LucideIcon } from 'lucide-react-native';
+import {
+  Activity,
+  Baby,
+  CalendarClock,
+  CalendarDays,
+  Check,
+  Droplets,
+  Dumbbell,
+  Flame,
+  HeartPulse,
+  MessageSquareText,
+  Moon,
+  OctagonAlert,
+  Plus,
+  Salad,
+  Scale,
+  Smile,
+  Sparkles,
+  Target,
+  Thermometer,
+  Trash2,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -34,12 +66,13 @@ import { BarChart, LineChart, ProgressBar } from '@/components/Charts';
 import { DateSheet } from '@/components/DateSheet';
 import { EmptyState } from '@/components/Feedback';
 import { QuickHelpCard } from '@/components/LibraryCards';
-import { Chip, TextField } from '@/components/Inputs';
+import { Chip, Segmented, TextField } from '@/components/Inputs';
 import { Sheet } from '@/components/Sheet';
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
 import { AppText } from '@/components/Text';
 import { TILE_TONES, type TileTone } from '@/components/Tiles';
+import { UrgentHelpSheet } from '@/components/UrgentHelp';
 import { VideoCard } from '@/components/Video';
 import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { useStore } from '@/lib/store';
@@ -58,6 +91,24 @@ const MAX_QUESTIONS = 12;
 const MAX_WEIGHTS = 52;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 type WeightEntry = { date: ISODate; kg: number };
+type FlashKind = 'hot_flash' | 'night_sweats';
+const FLASH_LABEL: Record<FlashKind, string> = { hot_flash: 'Hot flash', night_sweats: 'Night sweats' };
+const INTENSITY: { key: Severity; label: string }[] = [
+  { key: 'mild', label: 'Mild' },
+  { key: 'moderate', label: 'Moderate' },
+  { key: 'severe', label: 'Strong' },
+];
+const nowClock = () => {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** What changes when a mode is turned on (shown in the confirmation, P3-00). */
+const ENTER_POINTS: Record<Exclude<LifeStageMode, 'cycle'>, string[]> = {
+  pregnancy: ['Cycle predictions and period reminders pause', 'Home shows your estimated week, appointments and this week’s guide', 'Everything you logged before is kept'],
+  perimenopause: ['Cycle tracking continues, with a view of how your cycles are changing', 'Quick logging for hot flashes and night sweats', 'A 7-day wellness view for sleep, energy, mood and activity'],
+  menopause: ['Period predictions and period reminders turn off', 'Focus on symptoms, sleep, strength, nutrition education and goals', 'Everything you logged before is kept'],
+};
 
 const META = {
   pregnancy: { title: 'Pregnancy wellness', photo: 'pregnant-woman' as const, tagline: 'Week-by-week education, gentle activity and reminders.', videos: ['breathing', 'walk-outdoors', 'hydration'] as VideoKey[] },
@@ -81,6 +132,12 @@ export default function LifeStageScreen() {
   const [appt, setAppt] = useState<{ title: string; date: ISODate | null; time: string }>({ title: 'Prenatal check-up', date: null, time: '10:30' });
   const [apptDateOpen, setApptDateOpen] = useState(false);
   const [apptError, setApptError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<'enter' | 'leave' | null>(null);
+  const [urgentOpen, setUrgentOpen] = useState(false);
+  const [flash, setFlash] = useState<{ kind: FlashKind; time: string; severity: Severity; note: string } | null>(null);
+  // Kept after closing, so the sheet's title doesn't change while it slides away.
+  const [flashKind, setFlashKind] = useState<FlashKind>('hot_flash');
+  const [flashError, setFlashError] = useState<string | null>(null);
   const imperial = state.profile.units === 'imperial';
 
   if (!meta) {
@@ -103,6 +160,8 @@ export default function LifeStageScreen() {
   const dash = stageDashboard(state);
   const flashDays = dailySymptomCounts(state, ['hot_flash', 'night_sweats'], 7);
   const allSymptomDays = dailySymptomCounts(state, state.symptomDefs.map((d) => d.id), 7);
+  const weekFlashes = flashDays.reduce((a, d) => a + d.bySymptom.hot_flash, 0);
+  const weekSweats = flashDays.reduce((a, d) => a + d.bySymptom.night_sweats, 0);
   const appointments = state.reminders.filter((r) => r.type === 'appointment' && r.date).sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
   const upcoming = appointments.filter((r) => (r.date as string) >= state.today);
   const toDisplayWeight = (kg: number) => (imperial ? Math.round(kg * 2.20462 * 10) / 10 : kg);
@@ -124,9 +183,34 @@ export default function LifeStageScreen() {
   const sitali = article('q_sitali');
   const bones = article('a_menopause_bones');
 
+  const guide = preg ? pregnancyGuideFor(preg.weeks) : null;
+  const cs = cycleStateOf(state);
+  const cycleLengths = recentCycleLengths(cs.cycles);
+  const flashLogs = state.symptomLogs
+    .filter((l) => l.symptomId === 'hot_flash' || l.symptomId === 'night_sweats')
+    .sort((a, b) => `${b.date}${hotFlashTime(b.notes) ?? ''}`.localeCompare(`${a.date}${hotFlashTime(a.notes) ?? ''}`))
+    .slice(0, 5);
+  // Life-stage reading beyond the cards already shown above.
+  const shown = new Set(['a_pregnancy_wellness', 'a_pregnancy_nutrition', 'a_menopause_nutrition', 'a_menopause_bones', 'q_sitali']);
+  const moreReading = state.articles.filter((a) => a.status === 'published' && a.lifeStage === mode && !shown.has(a.id)).slice(0, 3);
+
+  const openFlash = (kind: FlashKind) => {
+    setFlashError(null);
+    setFlashKind(kind);
+    setFlash({ kind, time: nowClock(), severity: 'mild', note: '' });
+  };
+  const saveFlash = () => {
+    if (!flash) return;
+    if (!TIME.test(flash.time)) return setFlashError('Use a time like 14:30.');
+    if (flash.time > nowClock()) return setFlashError('That time is still to come — choose a time that has passed today.');
+    dispatch({ type: 'LOG_SYMPTOMS', date: state.today, entries: [{ symptomId: flash.kind, severity: flash.severity }], notes: hotFlashNote(flash.time, flash.note) });
+    toast(`${FLASH_LABEL[flash.kind]} logged`);
+    setFlash(null);
+  };
+
   const activate = () => {
     dispatch({ type: 'SET_MODE', mode: mode as LifeStageMode });
-    toast(`${meta.title} mode on (preview)`);
+    toast(`${meta.title} mode on`);
     if (mode !== 'pregnancy') return;
     // Entering pregnancy mode saves the date the week is counted from (D-21): the newest known period
     // start, which the person can then correct. No date known → ask for it.
@@ -226,18 +310,9 @@ export default function LifeStageScreen() {
       right={<PhaseBadge phase={3} />}
       footer={
         active ? (
-          <Button
-            label="Switch back to cycle tracking"
-            variant="secondary"
-            size="lg"
-            full
-            onPress={() => {
-              dispatch({ type: 'SET_MODE', mode: 'cycle' });
-              toast(mode === 'pregnancy' ? 'Cycle tracking resumed — log your next period when it starts so estimates can restart.' : 'Cycle tracking mode');
-            }}
-          />
+          <Button label="Switch back to cycle tracking" variant="secondary" size="lg" full onPress={() => setConfirm('leave')} />
         ) : (
-          <Button label={`Use ${meta.title} mode`} size="lg" full onPress={activate} />
+          <Button label={`Use ${meta.title} mode`} size="lg" full onPress={() => setConfirm('enter')} />
         )
       }>
       <Photo photo={meta.photo} style={styles.hero} radius={30} position="top">
@@ -257,11 +332,9 @@ export default function LifeStageScreen() {
           </AppText>
         </View>
       </Photo>
-      <Disclaimer tone="lavender" style={{ marginTop: 14 }} text="Phase 3 preview. Final content and features need medical review before launch." />
-
       {mode === 'pregnancy' ? (
         <>
-          <Disclaimer tone="rose" style={{ marginTop: 10 }} text={COPY.pregnancy} />
+          <Disclaimer tone="rose" style={{ marginTop: 14 }} text={COPY.pregnancy} />
           <SectionHeader eyebrow={trimester} title="Pregnancy week" />
           <Card tone="mint" style={{ alignItems: 'center', gap: 10 }}>
             <View style={styles.babyDisc}>
@@ -295,6 +368,30 @@ export default function LifeStageScreen() {
             <Button label={preg ? 'Change last period date' : 'Add last period date'} icon={CalendarDays} size="sm" variant="soft" onPress={() => setDateOpen(true)} />
           </Card>
           {active ? <Disclaimer style={{ marginTop: 10 }} text="Cycle predictions and period reminders are paused while pregnancy mode is on." /> : null}
+          {guide ? (
+            <>
+              <SectionHeader eyebrow={`Weeks ${guide.fromWeek}–${guide.toWeek}`} title="Your week guide" />
+              <Card style={{ gap: 10 }}>
+                <AppText variant="h3">{guide.title}</AppText>
+                <AppText variant="small" color={palette.ink[700]}>
+                  {guide.body}
+                </AppText>
+                {guide.focus.map((f) => (
+                  <View key={f} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                    <View style={[styles.qIcon, { width: 24, height: 24, backgroundColor: palette.green[50] }]}>
+                      <Sparkles size={12} color={palette.green[700]} />
+                    </View>
+                    <AppText variant="small" style={{ flex: 1 }}>
+                      {f}
+                    </AppText>
+                  </View>
+                ))}
+                <AppText variant="caption" muted>
+                  General wellness education — everyone’s pregnancy is different. Your care provider is your guide.
+                </AppText>
+              </Card>
+            </>
+          ) : null}
           {pregArticle ? (
             <>
               <SectionHeader eyebrow="Read" title="This week" />
@@ -352,6 +449,7 @@ export default function LifeStageScreen() {
               <AppText variant="small" color={palette.ink[800]} style={{ marginTop: 4 }}>
                 {COPY.emergency} Contact your prenatal care provider for anything that concerns you.
               </AppText>
+              <Button label="When to get care right away" icon={OctagonAlert} variant="danger" size="sm" onPress={() => setUrgentOpen(true)} style={{ alignSelf: 'flex-start', marginTop: 10 }} />
             </View>
           </View>
         </>
@@ -393,34 +491,82 @@ export default function LifeStageScreen() {
             />
             {mode === 'perimenopause' ? (
               <AppText variant="caption" muted style={{ marginTop: 8 }}>
-                This week: {flashDays.reduce((a, d) => a + d.bySymptom.hot_flash, 0)} hot flashes · {flashDays.reduce((a, d) => a + d.bySymptom.night_sweats, 0)} night sweats logged.
+                This week: {weekFlashes} hot flash{weekFlashes === 1 ? '' : 'es'} · {weekSweats} night{weekSweats === 1 ? '' : 's'} with night sweats logged.
               </AppText>
             ) : null}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <Button
-                label="Log hot flash"
-                icon={Thermometer}
-                size="sm"
-                variant="soft"
-                style={{ flex: 1 }}
-                onPress={() => {
-                  dispatch({ type: 'LOG_SYMPTOMS', date: state.today, entries: [{ symptomId: 'hot_flash', severity: 'mild' }] });
-                  toast('Hot flash logged');
-                }}
-              />
-              <Button
-                label="Night sweats"
-                icon={Flame}
-                size="sm"
-                variant="soft"
-                style={{ flex: 1 }}
-                onPress={() => {
-                  dispatch({ type: 'LOG_SYMPTOMS', date: state.today, entries: [{ symptomId: 'night_sweats', severity: 'mild' }] });
-                  toast('Night sweats logged');
-                }}
-              />
+              <Button label="Log hot flash" icon={Thermometer} size="sm" variant="soft" style={{ flex: 1 }} onPress={() => openFlash('hot_flash')} />
+              <Button label="Night sweats" icon={Flame} size="sm" variant="soft" style={{ flex: 1 }} onPress={() => openFlash('night_sweats')} />
             </View>
+            {flashLogs.length ? (
+              <View style={{ marginTop: 12 }}>
+                <AppText variant="overline" color={colors.textSubtle}>
+                  Recent entries
+                </AppText>
+                {flashLogs.map((l, i) => {
+                  const time = hotFlashTime(l.notes);
+                  const extra = l.notes?.replace(/^Started \d\d:\d\d( · )?/, '');
+                  return (
+                    <View key={l.id} style={[styles.flashRow, i < flashLogs.length - 1 && styles.border]}>
+                      <View style={[styles.qIcon, { backgroundColor: palette.peach[50] }]}>{l.symptomId === 'hot_flash' ? <Thermometer size={14} color={palette.peach[600]} /> : <Flame size={14} color={palette.peach[600]} />}</View>
+                      <View style={{ flex: 1 }}>
+                        <AppText variant="smallMedium">
+                          {FLASH_LABEL[l.symptomId as FlashKind]} · {INTENSITY.find((x) => x.key === l.severity)?.label.toLowerCase()}
+                        </AppText>
+                        <AppText variant="caption" muted numberOfLines={1}>
+                          {formatDate(l.date, 'short')}
+                          {time ? ` · ${formatClock(time)}` : ''}
+                          {extra ? ` · ${extra}` : ''}
+                        </AppText>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${FLASH_LABEL[l.symptomId as FlashKind].toLowerCase()} from ${formatDate(l.date, 'short')}`}
+                        hitSlop={8}
+                        onPress={() => {
+                          dispatch({ type: 'REMOVE_SYMPTOM_LOG', id: l.id });
+                          toast('Entry deleted');
+                        }}>
+                        <Trash2 size={16} color={colors.textSubtle} />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <AppText variant="caption" muted style={{ marginTop: 10 }}>
+                Nothing logged yet. Log a hot flash or night sweats when they happen to see your pattern here.
+              </AppText>
+            )}
           </Card>
+          {mode === 'perimenopause' ? (
+            <>
+              <SectionHeader eyebrow="Your history" title="Cycle changes" action="Cycle" onAction={() => router.push('/cycle')} />
+              <Card style={{ gap: 12 }}>
+                {cycleLengths.length >= 2 ? (
+                  <>
+                    <BarChart data={[...cycleLengths].reverse().map((c) => ({ label: formatDate(c.start, 'short'), value: c.length }))} color={palette.lavender[400]} showValues height={130} />
+                    <AppText variant="small" color={palette.ink[700]}>
+                      Your last {cycleLengths.length} cycles were {Math.min(...cycleLengths.map((c) => c.length))}–{Math.max(...cycleLengths.map((c) => c.length))} days long.
+                    </AppText>
+                    {cs.isRegular === false ? (
+                      <Disclaimer
+                        tone="lavender"
+                        text="Your recent cycle lengths vary more than your previous cycles. If this pattern concerns you, consider discussing it with a qualified healthcare professional."
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <AppText variant="small" muted>
+                    Keep logging your periods — after two complete cycles you’ll see how their lengths change. Changing, less predictable cycles are common in perimenopause.
+                  </AppText>
+                )}
+                <AppText variant="caption" muted>
+                  Estimates adapt to your own history. HealthX doesn’t diagnose menopause status.
+                </AppText>
+              </Card>
+            </>
+          ) : null}
           {mode === 'perimenopause' && sitali ? (
             <>
               <SectionHeader eyebrow="Cool down" title="Quick Help" />
@@ -508,6 +654,8 @@ export default function LifeStageScreen() {
             <Tile tone="indigo" icon={Moon} title="Sleep" text="Wind-down routine" onPress={() => router.push('/sleep')} />
             <Tile tone="butter" icon={Salad} title="Nutrition education" text="Balanced plates & strength" onPress={() => router.push({ pathname: '/learn/[id]', params: { id: 'a_menopause_nutrition' } })} />
             <Tile tone="lavender" icon={Smile} title="Mood" text="Check in daily" onPress={() => router.push('/check-in')} />
+            <Tile tone="sky" icon={Target} title="Wellness goals" text="Set goals that matter to you" onPress={() => router.push('/goals')} />
+            <Tile tone="peach" icon={Activity} title="Symptoms" text="Track what you notice" onPress={() => router.push('/symptoms')} />
           </View>
           <Disclaimer style={{ marginTop: 14 }} text="Content focuses on healthy lifestyle and conversations with your healthcare provider. HealthX doesn't diagnose menopause status." />
         </>
@@ -519,7 +667,17 @@ export default function LifeStageScreen() {
           <VideoCard key={v} video={v} width={220} height={164} />
         ))}
       </ScrollView>
-      <BackendNote style={{ marginTop: 16 }} text="Life-stage modes are Phase 3 (SRS §63). Your logs, habits and appointments sync to your account; weight history and your questions stay on this phone until the backend can store them." />
+      {moreReading.length ? (
+        <>
+          <SectionHeader eyebrow="Reviewed articles" title="More to read" action="Library" onAction={() => router.push('/learn')} />
+          <View style={{ gap: 10 }}>
+            {moreReading.map((a) => (
+              <QuickHelpCard key={a.id} article={a} saved={state.bookmarks.includes(a.id)} onToggleSave={() => saveToggle(a.id)} />
+            ))}
+          </View>
+        </>
+      ) : null}
+      <BackendNote style={{ marginTop: 16 }} text="Your logs, habits and appointments sync to your account; weight history and your questions stay on this phone until the backend can store them." />
 
       <DateSheet
         visible={dateOpen}
@@ -559,6 +717,82 @@ export default function LifeStageScreen() {
         </View>
       </Sheet>
       <DateSheet visible={apptDateOpen} onClose={() => setApptDateOpen(false)} eyebrow="Appointment" title="Appointment date" value={appt.date} onChange={(d) => setAppt((a) => ({ ...a, date: d }))} />
+
+      {/* Mode changes are confirmed first (P3-00), with the mode's disclaimer. */}
+      <Sheet
+        visible={confirm !== null}
+        onClose={() => setConfirm(null)}
+        eyebrow="Life stage"
+        title={confirm === 'leave' ? 'Switch back to cycle tracking?' : `Turn on ${meta.title} mode?`}
+        subtitle={
+          confirm === 'leave'
+            ? mode === 'pregnancy'
+              ? 'Cycle estimates restart once you log your next period. Everything you logged is kept.'
+              : 'Cycle predictions and period reminders work as before. Everything you logged is kept.'
+            : 'You can switch back anytime — your history is always kept.'
+        }
+        footer={
+          <View style={{ gap: 8 }}>
+            <Button
+              label={confirm === 'leave' ? 'Switch to cycle tracking' : `Turn on ${meta.title} mode`}
+              full
+              onPress={() => {
+                const which = confirm;
+                setConfirm(null);
+                if (which === 'enter') return activate();
+                dispatch({ type: 'SET_MODE', mode: 'cycle' });
+                toast(mode === 'pregnancy' ? 'Cycle tracking resumed — log your next period when it starts so estimates can restart.' : 'Cycle tracking mode');
+              }}
+            />
+            <Button label="Not now" variant="ghost" full onPress={() => setConfirm(null)} />
+          </View>
+        }>
+        {confirm === 'enter' ? (
+          <View style={{ gap: 8 }}>
+            {ENTER_POINTS[mode as keyof typeof ENTER_POINTS].map((p) => (
+              <View key={p} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Check size={15} color={palette.green[700]} style={{ marginTop: 2 }} />
+                <AppText variant="small" style={{ flex: 1 }}>
+                  {p}
+                </AppText>
+              </View>
+            ))}
+            <Disclaimer tone={mode === 'pregnancy' ? 'rose' : 'lavender'} style={{ marginTop: 6 }} text={mode === 'pregnancy' ? COPY.pregnancy : 'HealthX is a wellness app — it doesn’t diagnose menopause status. Talk to a healthcare professional about anything that concerns you.'} />
+          </View>
+        ) : (
+          <View />
+        )}
+      </Sheet>
+
+      <UrgentHelpSheet visible={urgentOpen} onClose={() => setUrgentOpen(false)} context="pregnancy" />
+
+      <Sheet
+        visible={flash !== null}
+        onClose={() => setFlash(null)}
+        eyebrow={formatDate(state.today, 'long')}
+        title={`Log ${FLASH_LABEL[flashKind].toLowerCase()}`}
+        subtitle="Your entry feeds your weekly trends. It isn’t a diagnosis."
+        footer={<Button label="Save entry" full onPress={saveFlash} />}>
+        {flash ? (
+          <View style={{ gap: 14 }}>
+            <TextField label="Started at (24-hour, e.g. 14:30)" value={flash.time} onChangeText={(t) => setFlash((f) => (f ? { ...f, time: t.trim() } : f))} maxLength={5} keyboardType="numbers-and-punctuation" />
+            <View style={{ gap: 8 }}>
+              <AppText variant="label" color={palette.ink[800]}>
+                Intensity
+              </AppText>
+              <Segmented<Severity> tone="lavender" value={flash.severity} onChange={(v) => setFlash((f) => (f ? { ...f, severity: v } : f))} options={INTENSITY} />
+            </View>
+            <TextField label="Note (optional)" value={flash.note} onChangeText={(t) => setFlash((f) => (f ? { ...f, note: t } : f))} placeholder="e.g. after coffee" maxLength={80} />
+            {flashError ? (
+              <AppText variant="small" color={colors.danger} accessibilityRole="alert">
+                {flashError}
+              </AppText>
+            ) : null}
+          </View>
+        ) : (
+          <View />
+        )}
+      </Sheet>
     </Screen>
   );
 }
@@ -606,4 +840,5 @@ const styles = StyleSheet.create({
   dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: palette.green[300], alignItems: 'center', justifyContent: 'center' },
   dotOn: { backgroundColor: palette.green[700], borderColor: palette.green[700] },
   symChip: { backgroundColor: palette.peach[50], borderWidth: 1, borderColor: palette.peach[100], borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  flashRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
 });

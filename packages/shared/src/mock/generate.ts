@@ -104,7 +104,7 @@ export function generateHistory(today: ISODate, now = new Date()): GeneratedHist
     heightCm: 163,
     weightKg: 58,
     activityLevel: 'moderate',
-    avatar: 'avatar-1',
+    avatar: 'avatar-art-1',
     goals: ['understand_cycle', 'improve_wellness', 'track_symptoms', 'improve_fitness'],
     units: 'metric',
     mode: 'cycle',

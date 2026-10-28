@@ -19,7 +19,8 @@ import { useStore } from '@/lib/store';
 import { colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
-const AVATARS: PhotoKey[] = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4'];
+/** The illustrated avatars people can pick (lib/photos). */
+const AVATARS: PhotoKey[] = ['avatar-art-1', 'avatar-art-2', 'avatar-art-3', 'avatar-art-4', 'avatar-art-5'];
 const LB = 2.20462;
 const IN = 2.54;
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -107,11 +108,11 @@ export default function ProfileEdit() {
           Your own photo: {DEVICE_ONLY_NOTE.charAt(0).toLowerCase() + DEVICE_ONLY_NOTE.slice(1)}
         </AppText>
         <AppText variant="overline" color={palette.green[700]} style={{ marginTop: 16 }}>
-          {photo.uri ? 'Or a sample photo (used when yours is removed)' : 'Or a sample photo'}
+          {photo.uri ? 'Or pick an avatar (used when yours is removed)' : 'Or pick an avatar'}
         </AppText>
         <View style={styles.picks} accessibilityRole="radiogroup">
           {AVATARS.map((a, i) => (
-            <Pressable key={a} accessibilityRole="radio" accessibilityLabel={`Sample photo ${i + 1}`} aria-selected={avatar === a} onPress={() => setAvatar(a)} style={[styles.pick, avatar === a && styles.pickOn]}>
+            <Pressable key={a} accessibilityRole="radio" accessibilityLabel={`Avatar ${i + 1}`} aria-selected={avatar === a} onPress={() => setAvatar(a)} style={[styles.pick, avatar === a && styles.pickOn]}>
               <Photo photo={a} shape="circle" style={{ width: 48, height: 48 }} />
             </Pressable>
           ))}
@@ -120,7 +121,7 @@ export default function ProfileEdit() {
           </Pressable>
         </View>
       </View>
-      <BackendNote text="Uploading your photo to your account needs secure file storage on the backend — until then it stays on this phone and only the sample choice syncs." style={{ marginTop: 12 }} />
+      <BackendNote text="Uploading your photo to your account needs secure file storage on the backend — until then it stays on this phone and only the avatar choice syncs." style={{ marginTop: 12 }} />
 
       <Section icon={UserRound} tone="green" title="Basics">
         <TextField label="Name" value={name} onChangeText={setName} error={errors.name} autoCapitalize="words" />
@@ -199,7 +200,7 @@ const styles = StyleSheet.create({
   archFallback: { borderTopLeftRadius: 999, borderTopRightRadius: 999, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: palette.green[700], alignItems: 'center', justifyContent: 'center' },
   initial: { fontFamily: font.displayBold, fontSize: 48, lineHeight: 56, color: '#fff' },
   cam: { position: 'absolute', bottom: -6, right: -6, width: 34, height: 34, borderRadius: 17, backgroundColor: palette.green[800], borderWidth: 3, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  picks: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  picks: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 10 },
   pick: { width: 54, height: 54, borderRadius: 27, borderWidth: 3, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   pickOn: { borderColor: palette.green[600] },
   none: { backgroundColor: colors.surface },

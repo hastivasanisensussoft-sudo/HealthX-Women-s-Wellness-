@@ -3,7 +3,7 @@ import { WORKOUT_CATEGORIES, formatDate, stepsOn, type VideoKey, type WorkoutCat
 import { router } from 'expo-router';
 import { ChevronRight, Dumbbell, Footprints, Plus, Sparkles, Trash2 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { BackendNote, PhaseBadge } from '@/components/Badges';
 import { Button } from '@/components/Button';
@@ -11,6 +11,7 @@ import { Card } from '@/components/Card';
 import { ProgressRing } from '@/components/Charts';
 import { EmptyState, Skeleton } from '@/components/Feedback';
 import { Chip, SearchBar, Segmented, Stepper } from '@/components/Inputs';
+import { PictureSlider, type Slide } from '@/components/PictureSlider';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
@@ -19,16 +20,28 @@ import { GroupHeader, HScroll, HeroPanel, PageIntro, TintIcon, ON_DARK } from '@
 import { WorkoutCard, categoryName } from '@/components/b-workout';
 import { useDemoLoading } from '@/lib/hooks';
 import { KeyIcon } from '@/lib/icons';
+import { PICTURES } from '@/lib/pictures';
 import { useStore } from '@/lib/store';
 import { colors, palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 const MOVE_VIDEOS: VideoKey[] = ['yoga-flow', 'strength', 'walk-outdoors', 'breathing'];
+/** Header slider height as a share of its width: taller than Home's, since these pictures are portrait. */
+const SLIDER_RATIO = 0.85;
+/** Header pictures. `position` keeps each person in the frame. */
+const SLIDES: Slide[] = [
+  { key: 'namaste', source: PICTURES.workoutNamaste, position: 'top', alt: 'A smiling woman sitting cross-legged on a yoga mat, hands pressed together.' },
+  { key: 'inhale-exhale', source: PICTURES.workoutInhaleExhale, position: { top: '74%', left: '50%' }, alt: 'A woman in a seated side stretch on a mat, eyes closed, in a sunny room.' },
+  { key: 'backbend', source: PICTURES.workoutBackbend, position: { top: '90%', left: '50%' }, alt: 'A woman in a backbend on a lilac yoga mat.' },
+  { key: 'lunge', source: PICTURES.workoutLunge, position: 'top', alt: 'A woman in a lunge on a blue mat, hands pressed together.' },
+];
 
 export default function Fitness() {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const loading = useDemoLoading(500);
+  const { width } = useWindowDimensions();
+  const sliderWidth = width - 40;
   const [tab, setTab] = useState<'library' | 'history'>('library');
   const [cat, setCat] = useState<WorkoutCategory | 'all'>('all');
   const [query, setQuery] = useState('');
@@ -45,6 +58,7 @@ export default function Fitness() {
   return (
     <Screen back>
       <PageIntro eyebrow="Move your way" title="Workouts" subtitle="Gentle, flexible routines for every level and life stage." />
+      <PictureSlider slides={SLIDES} width={sliderWidth} height={Math.round(sliderWidth * SLIDER_RATIO)} label="Workout pictures, swipe for more" style={{ marginBottom: 16 }} />
 
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <Pressable accessibilityRole="button" accessibilityLabel={`Steps today ${steps}`} onPress={() => router.push('/steps' as never)} style={({ pressed }) => [styles.steps, pressed && { opacity: 0.9 }]}>

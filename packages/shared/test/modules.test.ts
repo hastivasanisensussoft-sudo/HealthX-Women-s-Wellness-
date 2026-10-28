@@ -263,4 +263,8 @@ test('reminder plan: period reminder two days before the estimate, paused in pre
   assert.ok(!/period/i.test(cycle.body), 'discreet text mentions the period');
   const pregnant = { ...s, profile: { ...s.profile, mode: 'pregnancy' as const } };
   assert.ok(!reminderPlan(pregnant, NOW).some((p) => p.key === 'type:cycle'));
+  const menopause = { ...s, profile: { ...s.profile, mode: 'menopause' as const } };
+  assert.ok(!reminderPlan(menopause, NOW).some((p) => p.key === 'type:cycle'), 'menopause mode has no period reminder');
+  const perimenopause = { ...s, profile: { ...s.profile, mode: 'perimenopause' as const } };
+  assert.ok(reminderPlan(perimenopause, NOW).some((p) => p.key === 'type:cycle'), 'perimenopause keeps period reminders');
 });

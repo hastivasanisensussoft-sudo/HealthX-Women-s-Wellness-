@@ -74,6 +74,12 @@ export type PhotoKey =
   | 'avatar-2'
   | 'avatar-3'
   | 'avatar-4'
+  // Illustrated profile avatars (the mobile app's picker; images in apps/mobile/assets/avatars).
+  | 'avatar-art-1'
+  | 'avatar-art-2'
+  | 'avatar-art-3'
+  | 'avatar-art-4'
+  | 'avatar-art-5'
   | 'portrait-curly'
   | 'portrait-indian'
   | 'woman-running'

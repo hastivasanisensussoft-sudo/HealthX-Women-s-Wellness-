@@ -1,6 +1,10 @@
-/** Fertility awareness — Phase 3 preview (SRS §20, §21). User-entered observations only; never "confirmed ovulation", never contraception. */
-import { COPY, addDays, cycleStateOf, formatDate, lastNDays, weekdayInitial, type FertilityLog, type ISODate } from '@healthx/shared';
-import { CircleAlert, ClipboardList, Flower2, ShieldAlert, Thermometer } from 'lucide-react-native';
+/**
+ * Fertility awareness (SRS §20, §21; P3-01). User-entered observations only; never "confirmed ovulation",
+ * never contraception. Basal temperature is stored in °C and shown in °F with imperial units (A-16).
+ */
+import { COPY, addDays, celsiusToFahrenheit, cycleStateOf, fahrenheitToCelsius, formatDate, lastNDays, weekdayInitial, type FertilityLog, type ISODate } from '@healthx/shared';
+import { router } from 'expo-router';
+import { CircleAlert, ClipboardList, Eraser, Flower2, LineChart as LineChartIcon, ShieldAlert, Thermometer } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -10,6 +14,7 @@ import { Card, SectionHeader } from '@/components/Card';
 import { LineChart } from '@/components/Charts';
 import { EmptyState } from '@/components/Feedback';
 import { Chip, Segmented, TextField } from '@/components/Inputs';
+import { QuickHelpCard } from '@/components/LibraryCards';
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
 import { AppText } from '@/components/Text';
@@ -43,16 +48,19 @@ const TREND_DAYS = 21;
 
 const dayChipLabel = (d: ISODate, today: ISODate) => (d === today ? 'Today' : d === addDays(today, -1) ? 'Yesterday' : `${formatDate(d, 'weekday')} ${Number(d.slice(8, 10))}`);
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** A day counts as logged only when it holds at least one observation ("Clear day" keeps an empty entry). */
+const hasData = (l?: FertilityLog) => !!l && (l.bbtCelsius !== undefined || !!l.mucus || !!l.ovulationTest);
 
-/** BBT chart range that fits the logged values (at least 0.4 °C tall, whole tenths), with three guide lines. */
-function bbtScale(values: number[]) {
-  if (!values.length) return { min: 36, max: 36.8, ticks: [36.2, 36.4, 36.6] };
+/** BBT chart range that fits the logged values (at least 0.4 °C / 0.8 °F tall), with three guide lines. */
+function bbtScale(values: number[], fahrenheit: boolean) {
+  const minSpan = fahrenheit ? 0.8 : 0.4;
+  if (!values.length) return fahrenheit ? { min: 96.8, max: 98.4, ticks: [97.2, 97.6, 98] } : { min: 36, max: 36.8, ticks: [36.2, 36.4, 36.6] };
   let min = Math.floor((Math.min(...values) - 0.1) * 10) / 10;
   let max = Math.ceil((Math.max(...values) + 0.1) * 10) / 10;
-  if (max - min < 0.4) {
+  if (max - min < minSpan) {
     const mid = (min + max) / 2;
-    min = Math.floor((mid - 0.2) * 10) / 10;
-    max = round2(min + 0.4);
+    min = Math.floor((mid - minSpan / 2) * 10) / 10;
+    max = round2(min + minSpan);
   }
   min = round2(min);
   max = round2(max);
@@ -64,30 +72,40 @@ export default function Fertility() {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const cs = useMemo(() => cycleStateOf(state), [state]);
+  const fahrenheit = state.profile.units === 'imperial';
+  const unit = fahrenheit ? '°F' : '°C';
+  const show = (c: number) => (fahrenheit ? celsiusToFahrenheit(c) : c);
   const logOn = (d: ISODate) => state.fertility.find((f) => f.date === d);
   const [date, setDate] = useState<ISODate>(state.today);
   const existing = logOn(date);
-  const [bbt, setBbt] = useState(existing?.bbtCelsius ? String(existing.bbtCelsius) : '');
+  const [bbt, setBbt] = useState(existing?.bbtCelsius ? String(show(existing.bbtCelsius)) : '');
   const [mucus, setMucus] = useState<FertilityLog['mucus']>(existing?.mucus);
   const [test, setTest] = useState<FertilityLog['ovulationTest']>(existing?.ovulationTest);
   const [error, setError] = useState<string | null>(null);
+  const [allHistory, setAllHistory] = useState(false);
 
   const isToday = date === state.today;
   const logDays = Array.from({ length: LOG_DAYS }, (_, i) => addDays(state.today, -i));
   const trendDays = lastNDays(state.today, TREND_DAYS);
-  const series = trendDays.map((d) => ({ label: formatDate(d, 'short').split(' ')[1] ?? d.slice(8), value: logOn(d)?.bbtCelsius ?? null }));
-  const scale = bbtScale(series.map((p) => p.value).filter((v): v is number => v !== null));
+  const series = trendDays.map((d) => {
+    const c = logOn(d)?.bbtCelsius;
+    return { label: formatDate(d, 'short').split(' ')[1] ?? d.slice(8), value: c === undefined ? null : show(c) };
+  });
+  const bbtValues = series.map((p) => p.value).filter((v): v is number => v !== null);
+  const scale = bbtScale(bbtValues, fahrenheit);
   const trend = trendDays.map((d) => ({ d, log: logOn(d) }));
   const mucusDays = trend.filter((t) => t.log?.mucus).length;
   const testDays = trend.filter((t) => t.log?.ovulationTest).length;
   const positiveDays = trend.filter((t) => t.log?.ovulationTest === 'positive').length;
-  const history = [...state.fertility].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 7);
+  const logged = [...state.fertility].filter(hasData).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const history = logged.slice(0, allHistory ? 30 : 7);
+  const reading = state.articles.filter((a) => a.status === 'published' && a.lifeStage === 'fertility').slice(0, 2);
 
   /** Switch the day being logged and load what was already logged for it. */
   const pickDay = (d: ISODate) => {
     const l = logOn(d);
     setDate(d);
-    setBbt(l?.bbtCelsius ? String(l.bbtCelsius) : '');
+    setBbt(l?.bbtCelsius ? String(show(l.bbtCelsius)) : '');
     setMucus(l?.mucus);
     setTest(l?.ovulationTest);
     setError(null);
@@ -96,13 +114,24 @@ export default function Fertility() {
   const save = () => {
     let temp: number | undefined;
     if (bbt.trim()) {
-      temp = Number(bbt.replace(',', '.'));
-      if (Number.isNaN(temp) || temp < 35 || temp > 38.5) return setError('Enter a basal temperature between 35.0 and 38.5 °C.');
+      const n = Number(bbt.replace(',', '.'));
+      const [lo, hi] = fahrenheit ? [95, 101.3] : [35, 38.5];
+      if (Number.isNaN(n) || n < lo || n > hi) return setError(`Enter a basal temperature between ${lo.toFixed(1)} and ${hi.toFixed(1)} ${unit}.`);
+      temp = fahrenheit ? fahrenheitToCelsius(n) : n;
     }
     if (!temp && !mucus && !test) return setError('Add at least one observation.');
     setError(null);
     dispatch({ type: 'LOG_FERTILITY', log: { date, bbtCelsius: temp, mucus, ovulationTest: test } });
     toast(`Observations saved for ${isToday ? 'today' : formatDate(date, 'short')}`);
+  };
+  /** Clearing saves an empty entry for the day (the API has no delete for these logs). */
+  const clearDay = () => {
+    dispatch({ type: 'LOG_FERTILITY', log: { date } });
+    setBbt('');
+    setMucus(undefined);
+    setTest(undefined);
+    setError(null);
+    toast(`Cleared ${isToday ? 'today' : formatDate(date, 'short')}`);
   };
 
   return (
@@ -128,7 +157,7 @@ export default function Fertility() {
         <View style={{ flex: 1, padding: 14 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Flower2 size={16} color={palette.lavender[600]} />
-            <AppText variant="h3">Phase 3 preview</AppText>
+            <AppText variant="h3">How it works</AppText>
           </View>
           <AppText variant="small" color={palette.ink[700]} style={{ marginTop: 4 }}>
             {COPY.fertilityAwareness}
@@ -184,12 +213,18 @@ export default function Fertility() {
         )}
       </Card>
 
-      <SectionHeader eyebrow="Last 21 days · °C" title="Basal body temperature" />
+      <SectionHeader eyebrow={`Last 21 days · ${unit}`} title="Basal body temperature" />
       <Card>
-        <LineChart data={series} color={palette.lavender[500]} min={scale.min} max={scale.max} yTicks={scale.ticks} dots />
-        <AppText variant="caption" muted style={{ marginTop: 4 }}>
-          °C, last 21 days · scale {scale.min.toFixed(1)}–{scale.max.toFixed(1)} °C, fitted to what you logged · trends are shown as-is and are not interpreted as ovulation.
-        </AppText>
+        {bbtValues.length ? (
+          <>
+            <LineChart data={series} color={palette.lavender[500]} min={scale.min} max={scale.max} yTicks={scale.ticks} dots />
+            <AppText variant="caption" muted style={{ marginTop: 4 }}>
+              {unit}, last 21 days · scale {scale.min.toFixed(1)}–{scale.max.toFixed(1)} {unit}, fitted to what you logged · trends are shown as-is and are not interpreted as ovulation.
+            </AppText>
+          </>
+        ) : (
+          <EmptyState compact icon={LineChartIcon} tone="lavender" title="No temperatures yet" text="Log your basal temperature each morning to see your chart here." />
+        )}
       </Card>
 
       <SectionHeader eyebrow="Last 21 days" title="Mucus & test results" />
@@ -263,16 +298,16 @@ export default function Fertility() {
       <SectionHeader eyebrow="Your observations" title={isToday ? 'Log today' : `Log for ${formatDate(date, 'short')}`} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow} style={{ marginHorizontal: -20, marginBottom: 10 }}>
         {logDays.map((d) => (
-          <Chip key={d} label={dayChipLabel(d, state.today)} tone="lavender" selected={date === d} icon={logOn(d) ? <View style={styles.loggedDot} /> : undefined} onPress={() => pickDay(d)} />
+          <Chip key={d} label={dayChipLabel(d, state.today)} tone="lavender" selected={date === d} icon={hasData(logOn(d)) ? <View style={styles.loggedDot} /> : undefined} onPress={() => pickDay(d)} />
         ))}
       </ScrollView>
       <Card style={{ gap: 18 }}>
         <TextField
-          label="Basal temperature (°C)"
+          label={`Basal temperature (${unit})`}
           value={bbt}
           onChangeText={setBbt}
           keyboardType="decimal-pad"
-          placeholder="e.g. 36.45"
+          placeholder={fahrenheit ? 'e.g. 97.6' : 'e.g. 36.45'}
           hint="Take it at the same time each morning, before getting up."
           icon={<Thermometer size={18} color={palette.ink[400]} />}
         />
@@ -295,7 +330,7 @@ export default function Fertility() {
             Test results are what you entered — HealthX doesn’t confirm ovulation.
           </AppText>
         </View>
-        {existing ? (
+        {hasData(existing) ? (
           <AppText variant="caption" muted>
             You already logged this day — saving replaces that entry.
           </AppText>
@@ -309,9 +344,15 @@ export default function Fertility() {
           </View>
         ) : null}
         <Button label="Save observations" size="lg" onPress={save} full />
+        {hasData(existing) ? <Button label="Clear this day" icon={Eraser} variant="ghost" size="sm" onPress={clearDay} style={{ alignSelf: 'center' }} /> : null}
       </Card>
 
-      <SectionHeader eyebrow="Last 7 entries" title="Recent observations" />
+      <SectionHeader
+        eyebrow={allHistory ? `${Math.min(30, logged.length)} most recent` : 'Last 7 entries'}
+        title="Recent observations"
+        action={logged.length > 7 ? (allHistory ? 'Show fewer' : 'Show all') : undefined}
+        onAction={() => setAllHistory((v) => !v)}
+      />
       <Card padded={false} style={{ paddingHorizontal: 16, paddingVertical: history.length ? 4 : 0 }}>
         {history.length ? (
           history.map((h, i) => (
@@ -322,7 +363,7 @@ export default function Fertility() {
                 </AppText>
               </View>
               <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {h.bbtCelsius ? <Pill label={`${h.bbtCelsius.toFixed(2)} °C`} tone="lavender" /> : null}
+                {h.bbtCelsius ? <Pill label={`${show(h.bbtCelsius).toFixed(fahrenheit ? 1 : 2)} ${unit}`} tone="lavender" /> : null}
                 {h.mucus ? <Pill label={MUCUS.find((m) => m.key === h.mucus)?.label ?? h.mucus} tone="sky" /> : null}
                 {h.ovulationTest ? <Pill label={`Test: ${TESTS.find((t) => t.key === h.ovulationTest)?.label}`} tone="ink" /> : null}
               </View>
@@ -332,7 +373,27 @@ export default function Fertility() {
           <EmptyState compact icon={ClipboardList} tone="lavender" title="No observations yet" />
         )}
       </Card>
-      <BackendNote style={{ marginTop: 14 }} text="Phase 3 module — requires medical/legal review before release (SRS §20). Demo data only." />
+      <SectionHeader eyebrow="Reviewed articles" title="Learn more" action="Library" onAction={() => router.push('/learn')} />
+      <View style={{ gap: 10 }}>
+        {reading.map((a) => (
+          <QuickHelpCard
+            key={a.id}
+            article={a}
+            saved={state.bookmarks.includes(a.id)}
+            onToggleSave={() => {
+              const saved = state.bookmarks.includes(a.id);
+              dispatch({ type: 'TOGGLE_BOOKMARK', articleId: a.id });
+              toast(saved ? 'Removed from favorites' : 'Added to favorites');
+            }}
+          />
+        ))}
+        {reading.length === 0 ? (
+          <AppText variant="small" muted>
+            Fertility-awareness articles appear here once they are published.
+          </AppText>
+        ) : null}
+      </View>
+      <BackendNote style={{ marginTop: 14 }} text="Before public release, fertility features need the medical and legal review the SRS requires (§20, D-41)." />
     </Screen>
   );
 }

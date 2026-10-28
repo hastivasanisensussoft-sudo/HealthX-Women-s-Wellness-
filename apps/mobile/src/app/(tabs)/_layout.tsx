@@ -2,12 +2,13 @@
 import { canUseTheme, DEFAULT_THEME, themeById } from '@healthx/shared';
 import { Redirect, router } from 'expo-router';
 import { Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
-import { CalendarHeart, ChartColumn, Droplets, Dumbbell, Heart, House, Moon, Plus, Salad, Smile, Sparkles, Stethoscope, UserRound, Wind, type LucideIcon } from 'lucide-react-native';
+import { CalendarHeart, Droplets, Dumbbell, Moon, Plus, Salad, Smile, Sparkles, Stethoscope, Wind } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Sheet } from '@/components/Sheet';
+import { TabBarShape, TabIcon, type TabName } from '@/components/TabBarArt';
 import { AppText } from '@/components/Text';
 import { QuickTile } from '@/components/Tiles';
 import { openVideo } from '@/components/Video';
@@ -16,43 +17,48 @@ import { brandText, colors, font, layout, palette } from '@/lib/theme';
 import { THEME, readThemePrefs, writeThemePrefs } from '@/lib/themeBoot';
 import { useToast } from '@/lib/toast';
 
-const ICONS: Record<string, { icon: LucideIcon; label: string }> = {
-  home: { icon: House, label: 'Home' },
-  cycle: { icon: CalendarHeart, label: 'Cycle' },
-  wellness: { icon: Heart, label: 'Wellness' },
-  insights: { icon: ChartColumn, label: 'Insights' },
-  profile: { icon: UserRound, label: 'Profile' },
-};
+const LABELS: Record<TabName, string> = { home: 'Home', cycle: 'Cycle', wellness: 'Wellness', insights: 'Insights', profile: 'Profile' };
+/** Floating bar: body height, how far its middle rises, and the gap to the screen sides. */
+const BAR_H = 66;
+const BAR_RISE = 12;
+const BAR_SIDE = 12;
 
 function TabBar({ state, navigateToTab }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const barWidth = Math.min(width - BAR_SIDE * 2, 560);
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      <View style={styles.bar} accessibilityRole="tablist">
-        {state.routes.map((route, index) => {
-          const meta = ICONS[route.name];
-          if (!meta) return null;
-          const focused = state.index === index;
-          const Icon = meta.icon;
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="tab"
-              aria-selected={focused}
-              accessibilityLabel={meta.label}
-              onPress={() => {
-                if (!focused) navigateToTab(route.key);
-              }}
-              style={styles.item}>
-              <View style={[styles.iconWrap, focused && styles.iconActive]}>
-                <Icon size={21} color={focused ? brandText : palette.ink[400]} strokeWidth={focused ? 2.4 : 2} fill={focused && route.name === 'wellness' ? brandText : 'none'} />
-              </View>
-              <AppText variant="caption" color={focused ? brandText : palette.ink[400]} style={{ fontSize: 11, fontFamily: focused ? font.bold : font.medium }}>
-                {meta.label}
-              </AppText>
-            </Pressable>
-          );
-        })}
+    // box-none: the space beside the floating bar still scrolls and taps through to the screen.
+    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={{ width: barWidth, height: BAR_H + BAR_RISE }}>
+        <TabBarShape width={barWidth} height={BAR_H + BAR_RISE} rise={BAR_RISE} />
+        <View style={styles.bar} accessibilityRole="tablist">
+          {state.routes.map((route, index) => {
+            if (!(route.name in LABELS)) return null;
+            const name = route.name as TabName;
+            const focused = state.index === index;
+            return (
+              <Pressable
+                key={route.key}
+                accessibilityRole="tab"
+                aria-selected={focused}
+                accessibilityLabel={LABELS[name]}
+                onPress={() => {
+                  if (!focused) navigateToTab(route.key);
+                }}
+                style={styles.item}>
+                {/* The active tab is marked by its green icon, bold label and the line below; the middle icon sits a little higher, inside the bar's rise. */}
+                <View style={[styles.bubble, name === 'wellness' && { transform: [{ translateY: -4 }] }]}>
+                  <TabIcon name={name} active={focused} cutout={colors.surface} size={28} />
+                </View>
+                <AppText style={[styles.label, focused ? styles.labelOn : null]} numberOfLines={1}>
+                  {LABELS[name]}
+                </AppText>
+                <View style={[styles.dash, focused && styles.dashOn]} />
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     </View>
   );
@@ -147,25 +153,14 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    alignItems: 'center',
-    shadowColor: '#0D4336',
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 12,
-  },
-  bar: { flexDirection: 'row', paddingTop: 10, paddingHorizontal: 8, width: '100%', maxWidth: 560 },
-  item: { flex: 1, alignItems: 'center', gap: 3 },
-  iconWrap: { width: 52, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  iconActive: { backgroundColor: palette.green[100] },
+  wrap: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', pointerEvents: 'box-none' },
+  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, height: BAR_H, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6 },
+  item: { flex: 1, height: BAR_H, alignItems: 'center', justifyContent: 'center' },
+  bubble: { alignItems: 'center', justifyContent: 'center', width: 54, height: 36, borderRadius: 18 },
+  label: { fontFamily: font.semibold, fontSize: 11.5, lineHeight: 15, color: colors.textMuted, marginTop: 3 },
+  labelOn: { fontFamily: font.bold, color: brandText },
+  dash: { width: 16, height: 4, borderRadius: 2, marginTop: 3 },
+  dashOn: { backgroundColor: brandText },
   fab: {
     position: 'absolute',
     right: 18,

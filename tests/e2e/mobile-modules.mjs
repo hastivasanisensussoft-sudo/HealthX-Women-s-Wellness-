@@ -139,6 +139,9 @@ try {
     const total = daysBetween(lmp, st.today);
     await go('/life-stage/pregnancy');
     await page.getByRole('button', { name: 'Use Pregnancy wellness mode' }).click();
+    // P3-00: the switch is confirmed first, with the pregnancy disclaimer.
+    await text('Turn on Pregnancy wellness mode?').waitFor({ timeout: 4000 });
+    await page.getByRole('button', { name: 'Turn on Pregnancy wellness mode' }).click();
     const saved = await until(async () => {
       const s = await state();
       return s.profile.mode === 'pregnancy' && s.cycleProfile.lastPeriodStart === lmp ? s : null;
@@ -232,6 +235,7 @@ try {
   await step('pregnancy: switching back to cycle tracking resumes estimates', async () => {
     await go('/life-stage/pregnancy');
     await page.getByRole('button', { name: 'Switch back to cycle tracking' }).click();
+    await page.getByRole('button', { name: 'Switch to cycle tracking' }).click();
     ok(await until(async () => (await state()).profile.mode === 'cycle'), 'server mode not cycle');
     await go('/cycle');
     ok((await page.getByText('Pregnancy mode is on').count()) === 0, 'pause banner still shown');

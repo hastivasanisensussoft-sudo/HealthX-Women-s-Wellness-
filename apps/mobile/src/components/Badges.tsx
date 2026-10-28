@@ -1,5 +1,5 @@
 import { DEMO, COPY } from '@healthx/shared';
-import { ChevronDown, CloudOff, Info, Sparkles } from 'lucide-react-native';
+import { ChevronDown, CloudOff, Info, Sparkles, type LucideIcon } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 
@@ -53,7 +53,7 @@ export function BackendNote({ text = DEMO.needsBackend, style }: { text?: string
 }
 
 /** "Estimate*" marker with an expandable explanation (SRS §11, §12, §67). */
-export function EstimateNote({ text = COPY.estimate, style, compact }: { text?: string; style?: ViewStyle; compact?: boolean }) {
+export function EstimateNote({ text = COPY.estimate, style, compact, icon: Icon = Info }: { text?: string; style?: ViewStyle; compact?: boolean; icon?: LucideIcon }) {
   const [open, setOpen] = useState(!compact);
   return (
     <Pressable
@@ -63,7 +63,7 @@ export function EstimateNote({ text = COPY.estimate, style, compact }: { text?: 
       onPress={() => setOpen((o) => !o)}
       style={({ pressed }) => [styles.estimate, pressed && { opacity: 0.85 }, style]}>
       <View style={styles.estimateIcon}>
-        <Info size={13} color={palette.lavender[600]} />
+        <Icon size={13} color={palette.lavender[600]} />
       </View>
       <AppText variant="caption" color={palette.lavender[700]} style={{ flex: 1, fontSize: 12.5, lineHeight: 17 }}>
         {open ? `* ${text}` : '* Estimate — tap to learn more'}

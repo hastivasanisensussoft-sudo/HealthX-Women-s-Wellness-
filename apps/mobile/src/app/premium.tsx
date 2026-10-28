@@ -1,12 +1,14 @@
 /**
- * Subscriptions (SRS §49; mockup M41) — Phase 2. The 7-day free trial is granted (and ended) by the server;
- * paid plans, renewal and receipts need store billing. Pricing is undecided (D-13). The trial end date is
- * remembered on this phone from the server's reply.
+ * Subscriptions & Premium (SRS §49; mockup M41; P2-15). The 7-day free trial is granted (and ended) by
+ * the server. Paid plans go through `lib/billing`: signed in, they report that store billing isn't
+ * connected yet; in the offline demo a mock store sheet lets every purchase state be tried (success,
+ * cancelled, pending, failed), with the plan, renewal date and receipts remembered on this phone.
+ * Pricing is undecided (D-13). Downgrading keeps every log and only locks the Premium views.
  */
 import { PREMIUM_FEATURES, diffDays, formatDate, hasPremium, toISODate, type PremiumFeature } from '@healthx/shared';
-import { CalendarClock, Check, Crown, Minus, Sparkles, Star } from 'lucide-react-native';
+import { CalendarClock, Check, Crown, ExternalLink, Minus, Receipt, ShoppingBag, Sparkles, Star } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { BackendNote, PhaseBadge, Pill } from '@/components/Badges';
 import { Button } from '@/components/Button';
@@ -16,6 +18,8 @@ import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { GroupHeader, HeroPanel, LeafPair, ON_DARK } from '@/components/b-kit';
+import { OUTCOME_TEXT, PLANS, demoSubscription, openStoreSubscriptions, type DemoSubscription, type PlanKey, type PurchaseOutcome } from '@/lib/billing';
+import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { errorMessage, useStore } from '@/lib/store';
 import { useDeviceData } from '@/lib/useDeviceData';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
@@ -29,25 +33,26 @@ const ROWS: { label: string; free: boolean }[] = [
   { label: 'Privacy controls', free: true },
   ...PREMIUM_ORDER.map((k) => ({ label: PREMIUM_FEATURES[k].label, free: false })),
 ];
-
-/** EXAMPLE prices only — set per market at launch (D-13). */
-const PLANS = [
-  { key: 'yearly', title: 'Yearly', price: '₹1,799 / year', note: 'about ₹150 / month · save 40%', tag: 'Best value' },
-  { key: 'monthly', title: 'Monthly', price: '₹249 / month', note: 'cancel anytime', tag: null },
-] as const;
+const STORE = Platform.OS === 'ios' ? 'App Store' : Platform.OS === 'android' ? 'Google Play' : 'your app store';
 
 export default function Premium() {
-  const { state, account } = useStore();
+  const { state, account, mode } = useStore();
   const toast = useToast();
-  const [plan, setPlan] = useState<'yearly' | 'monthly'>('yearly');
-  const [busy, setBusy] = useState<'trial' | 'restore' | 'cancel' | null>(null);
+  const [plan, setPlan] = useState<PlanKey>('yearly');
+  const [busy, setBusy] = useState<'trial' | 'restore' | 'cancel' | 'buy' | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [storeSheet, setStoreSheet] = useState(false);
+  const [outcome, setOutcome] = useState<Exclude<PurchaseOutcome, 'success'> | null>(null);
   const trial = useDeviceData<{ endsAt: string } | null>('trial', null);
+  const sub = useDeviceData<DemoSubscription | null>('subscription', null);
   const premium = hasPremium(state.profile.plan);
   // The server's trial end as a local calendar day. A remembered end that has passed is ignored (the server ends the trial itself).
   const endDay = premium && trial.value ? toISODate(new Date(trial.value.endsAt)) : null;
   const endsAt = endDay && endDay >= state.today ? endDay : null;
   const daysLeft = endsAt ? diffDays(state.today, endsAt) : null;
+  // A demo store subscription only counts while Premium is on (cancelling switches the plan back to Free).
+  const paid = premium && !endsAt && sub.value ? sub.value : null;
+  const chosen = PLANS.find((p) => p.key === plan)!;
 
   const startTrial = async () => {
     setBusy('trial');
@@ -61,11 +66,43 @@ export default function Premium() {
       setBusy(null);
     }
   };
+
+  /** Paid plans: only the offline demo has a (mock) store; signed in, billing isn't connected yet. */
+  const subscribe = () => {
+    setOutcome(null);
+    if (mode !== 'offline') return setOutcome('unavailable');
+    setStoreSheet(true);
+  };
+  const finishDemoPurchase = async (result: PurchaseOutcome) => {
+    setStoreSheet(false);
+    if (result !== 'success') return setOutcome(result);
+    setBusy('buy');
+    try {
+      await account.startTrial(); // the offline demo grants Premium the same way
+      trial.set(null);
+      sub.set((prev) => demoSubscription(plan, state.today, prev));
+      toast(`Premium is on — ${chosen.title.toLowerCase()} plan (demo store, nothing charged)`);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const restore = async () => {
     setBusy('restore');
-    await new Promise((r) => setTimeout(r, 500));
-    setBusy(null);
-    toast('Store billing isn’t connected yet, so there are no purchases to restore.', 'info');
+    setOutcome(null);
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      if (mode !== 'offline') return toast('Store billing isn’t connected yet, so there are no purchases to restore.', 'info');
+      if (!sub.value) return toast('No purchases found for this account.', 'info');
+      if (premium) return toast('Your purchase is already active.', 'info');
+      await account.startTrial();
+      sub.set((prev) => (prev ? { ...prev, startedAt: state.today, renewsAt: demoSubscription(prev.plan, state.today).renewsAt } : prev));
+      toast('Purchase restored — Premium is on');
+    } finally {
+      setBusy(null);
+    }
   };
   const cancel = async () => {
     setBusy('cancel');
@@ -79,6 +116,9 @@ export default function Premium() {
     } finally {
       setBusy(null);
     }
+  };
+  const manageInStore = async () => {
+    if (!(await openStoreSubscriptions())) toast(`Manage store subscriptions in ${STORE} on your phone.`, 'info');
   };
 
   return (
@@ -95,7 +135,7 @@ export default function Premium() {
             Deeper insights for your wellness
           </AppText>
           {premium ? (
-            <Pill label={endsAt ? 'Free trial active' : 'Active (demo)'} tone="butter" style={{ marginTop: 12 }} />
+            <Pill label={endsAt ? 'Free trial active' : paid ? `${PLANS.find((p) => p.key === paid.plan)?.title} plan` : 'Active (demo)'} tone="butter" style={{ marginTop: 12 }} />
           ) : (
             <AppText variant="small" color={ON_DARK.text} style={{ marginTop: 6 }}>
               Try everything free for 7 days.
@@ -115,16 +155,45 @@ export default function Premium() {
             <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
               <CalendarClock size={18} color={palette.green[700]} />
               <AppText variant="bodyMedium" style={{ flex: 1 }}>
-                {endsAt ? `Trial ends ${formatDate(endsAt, 'long')} · ${daysLeft === 0 ? 'last day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}` : 'Premium is on'}
+                {endsAt
+                  ? `Trial ends ${formatDate(endsAt, 'long')} · ${daysLeft === 0 ? 'last day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}`
+                  : paid
+                    ? `${PLANS.find((p) => p.key === paid.plan)?.title} plan · renews ${formatDate(paid.renewsAt, 'long')}`
+                    : 'Premium is on'}
               </AppText>
             </View>
             <AppText variant="small" muted>
               {endsAt
                 ? 'When the trial ends you move back to Free automatically. Nothing renews and nothing is charged — store billing isn’t connected in this build.'
-                : 'In this build Premium has no renewal or charge. When store billing is added, renewal dates and receipts will show here.'}
+                : paid
+                  ? `Bought through the demo store — nothing was charged. With store billing, renewals and cancellations are handled in ${STORE}.`
+                  : 'In this build Premium has no renewal or charge. When store billing is added, renewal dates and receipts will show here.'}
             </AppText>
+            {Platform.OS !== 'web' ? <Button label={`Manage in ${STORE}`} icon={ExternalLink} variant="soft" full onPress={manageInStore} /> : null}
             <Button label="Cancel Premium" variant="secondary" full onPress={() => setConfirmCancel(true)} />
           </Card>
+          {paid?.receipts.length ? (
+            <>
+              <GroupHeader eyebrow="Demo store" title="Billing history" />
+              <Card padded={false} style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
+                {paid.receipts.map((r, i) => (
+                  <View key={`${r.date}-${i}`} style={[styles.receipt, i < paid.receipts.length - 1 && styles.border]}>
+                    <Receipt size={16} color={palette.green[700]} />
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="smallMedium">HealthX Premium · {PLANS.find((p) => p.key === r.plan)?.title}</AppText>
+                      <AppText variant="caption" muted>
+                        {formatDate(r.date, 'long')}
+                      </AppText>
+                    </View>
+                    <AppText variant="smallMedium">{r.amount}</AppText>
+                  </View>
+                ))}
+              </Card>
+              <AppText variant="caption" muted style={{ marginTop: 6 }}>
+                Example receipts from the demo store — no payment was taken. {DEVICE_ONLY_NOTE}
+              </AppText>
+            </>
+          ) : null}
         </>
       ) : (
         <>
@@ -156,6 +225,15 @@ export default function Premium() {
             })}
           </View>
           <Button label="Start 7-day free trial" icon={Sparkles} full size="lg" loading={busy === 'trial'} onPress={startTrial} style={{ marginTop: 16 }} />
+          <Button label={`Subscribe · ${chosen.price}`} icon={ShoppingBag} variant="secondary" full loading={busy === 'buy'} onPress={subscribe} style={{ marginTop: 10 }} />
+          {outcome ? (
+            <View style={[styles.outcome, outcome === 'failed' && styles.outcomeError]} accessibilityRole="alert">
+              <AppText variant="small" style={{ flex: 1 }}>
+                {OUTCOME_TEXT[outcome]}
+              </AppText>
+              {outcome === 'failed' ? <Button label="Try again" size="sm" variant="soft" onPress={subscribe} /> : null}
+            </View>
+          ) : null}
           <AppText variant="caption" muted center style={{ marginTop: 8, fontStyle: 'italic' }}>
             Cancel anytime. Example prices — final pricing is set per market (D-13).
           </AppText>
@@ -193,7 +271,31 @@ export default function Premium() {
       <AppText variant="caption" muted center style={{ marginTop: 6 }}>
         Downgrading never deletes your data. Core tracking stays free.
       </AppText>
-      <BackendNote style={{ marginTop: 14 }} text="Real purchases need App Store / Google Play billing, receipt validation, renewal and restore purchases (Phase 2)." />
+      <BackendNote style={{ marginTop: 14 }} text="Real purchases need App Store / Google Play billing with server-side receipt validation, renewal and restore (D-13). The offline demo uses a mock store." />
+
+      {/* Mock store confirmation (offline demo only) — stands in for the App Store / Google Play sheet. */}
+      <Sheet
+        visible={storeSheet}
+        onClose={() => void finishDemoPurchase('cancelled')}
+        eyebrow="Demo store"
+        title={`HealthX Premium · ${chosen.title}`}
+        subtitle={`${chosen.price}. This is the offline demo's mock store — nothing is charged.`}
+        footer={
+          <View style={{ gap: 8 }}>
+            <Button label="Confirm purchase" full onPress={() => void finishDemoPurchase('success')} />
+            <Button label="Cancel" variant="ghost" full onPress={() => void finishDemoPurchase('cancelled')} />
+          </View>
+        }>
+        <View style={{ gap: 8 }}>
+          <AppText variant="small" muted>
+            Try the other outcomes a real store can return:
+          </AppText>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Button label="Simulate pending" size="sm" variant="soft" style={{ flex: 1 }} onPress={() => void finishDemoPurchase('pending')} />
+            <Button label="Simulate failure" size="sm" variant="soft" style={{ flex: 1 }} onPress={() => void finishDemoPurchase('failed')} />
+          </View>
+        </View>
+      </Sheet>
 
       <Sheet
         visible={confirmCancel}
@@ -219,6 +321,11 @@ export default function Premium() {
               The free trial is once per account, so it can’t be restarted after you cancel.
             </AppText>
           ) : null}
+          {paid ? (
+            <AppText variant="caption" muted style={{ marginTop: 6 }}>
+              With store billing, a paid plan is cancelled in {STORE} and stays active until the end of the period you paid for.
+            </AppText>
+          ) : null}
         </View>
       </Sheet>
     </Screen>
@@ -237,6 +344,9 @@ const styles = StyleSheet.create({
   radioOn: { backgroundColor: palette.green[700], borderColor: palette.green[700] },
   tag: { backgroundColor: palette.butter[400], borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   price: { fontFamily: font.display, fontSize: 21, lineHeight: 27, color: colors.text, marginTop: 2 },
+  outcome: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, padding: 14, borderRadius: 18, backgroundColor: palette.lavender[50], borderWidth: 1, borderColor: palette.lavender[100] },
+  outcomeError: { backgroundColor: colors.dangerSoft, borderColor: palette.rose[200] },
+  receipt: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   cmpHead: { flexDirection: 'row', alignItems: 'center', paddingTop: 12, paddingBottom: 6, paddingHorizontal: 16 },
   cmpRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 16 },
   col: { width: 52, alignItems: 'center', textAlign: 'center' },

@@ -5,8 +5,9 @@
  * - weekly: the weekly report (Mondays);
  * - one-off: the estimated-period reminder two days before the estimate, and dated reminders such as
  *   appointments.
- * Respects the notifications consent, quiet hours for daily reminders, discreet wording and pregnancy
- * mode (period reminders pause, D-21). Content notifications come from the in-app inbox instead.
+ * Respects the notifications consent, quiet hours for daily reminders, discreet wording, pregnancy
+ * mode (period reminders pause, D-21) and menopause mode (no period reminders). Content notifications
+ * come from the in-app inbox instead.
  */
 import { NOTIFICATION_TYPES } from './catalog';
 import { COPY } from './copy';
@@ -67,9 +68,11 @@ export function reminderPlan(s: AppState, now = new Date()): PlannedReminder[] {
   }
   if (prefs.types.report.enabled) out.push({ key: 'type:report', ...text('Weekly report', 'Your weekly summary is ready.'), schedule: { kind: 'weekly', weekday: 2, ...clock(prefs.types.report.time) } });
 
-  // Period reminder: two days before the estimated start. Paused in pregnancy mode (D-21).
+  // Period reminder: two days before the estimated start. Paused in pregnancy mode (D-21) and off in
+  // menopause mode, which works without period data (P3-04).
   const cs = cycleStateOf(s);
-  if (prefs.types.cycle.enabled && s.profile.mode !== 'pregnancy' && cs.nextPeriodStart) {
+  const noPeriodReminders = s.profile.mode === 'pregnancy' || s.profile.mode === 'menopause';
+  if (prefs.types.cycle.enabled && !noPeriodReminders && cs.nextPeriodStart) {
     const when = at(cs.nextPeriodStart, prefs.types.cycle.time);
     when.setDate(when.getDate() - 2);
     if (when > now) out.push({ key: 'type:cycle', ...text('Cycle', `Your estimated period may begin soon. ${COPY.estimate}`), schedule: { kind: 'date', at: when } });
@@ -77,7 +80,7 @@ export function reminderPlan(s: AppState, now = new Date()): PlannedReminder[] {
 
   for (const r of s.reminders) {
     if (!r.enabled) continue;
-    if (r.type === 'cycle' && s.profile.mode === 'pregnancy') continue;
+    if (r.type === 'cycle' && noPeriodReminders) continue;
     const example = NOTIFICATION_TYPES.find((n) => n.key === r.type)?.example ?? '';
     if (r.date) {
       const when = at(r.date, r.time);

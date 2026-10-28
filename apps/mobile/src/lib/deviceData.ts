@@ -10,8 +10,19 @@ import { File } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-export type DeviceDataName = 'weights' | 'provider-questions' | 'grocery' | 'photo' | 'integration-types' | 'trial' | 'menopause-questions';
-const NAMES: DeviceDataName[] = ['weights', 'provider-questions', 'grocery', 'photo', 'integration-types', 'trial', 'menopause-questions'];
+export type DeviceDataName =
+  | 'weights'
+  | 'provider-questions'
+  | 'grocery'
+  | 'photo'
+  | 'integration-types'
+  | 'trial'
+  | 'menopause-questions'
+  | 'coach-chat'
+  | 'coach-usage'
+  | 'subscription'
+  | 'integration-sync';
+const NAMES: DeviceDataName[] = ['weights', 'provider-questions', 'grocery', 'photo', 'integration-types', 'trial', 'menopause-questions', 'coach-chat', 'coach-usage', 'subscription', 'integration-sync'];
 
 /** Secure storage keys may only contain letters, digits, ".", "-" and "_". */
 export const keyFor = (userId: string, name: DeviceDataName) => `healthx.device.${(userId || 'anon').replace(/[^\w.-]/g, '_')}.${name}`;

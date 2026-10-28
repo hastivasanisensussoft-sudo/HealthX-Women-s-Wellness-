@@ -26,6 +26,12 @@ export const PHOTOS: Record<PhotoKey, ImageSourcePropType> = {
   'avatar-2': require('../../../../packages/shared/assets/photos/avatar-2.jpg'),
   'avatar-3': require('../../../../packages/shared/assets/photos/avatar-3.jpg'),
   'avatar-4': require('../../../../packages/shared/assets/photos/avatar-4.jpg'),
+  // Illustrated avatars supplied by the product owner (2026-10-28); licence to be confirmed before release.
+  'avatar-art-1': require('../../assets/avatars/avatar-art-1.jpg'),
+  'avatar-art-2': require('../../assets/avatars/avatar-art-2.jpg'),
+  'avatar-art-3': require('../../assets/avatars/avatar-art-3.jpg'),
+  'avatar-art-4': require('../../assets/avatars/avatar-art-4.jpg'),
+  'avatar-art-5': require('../../assets/avatars/avatar-art-5.jpg'),
   'portrait-curly': require('../../../../packages/shared/assets/photos/portrait-curly.jpg'),
   'portrait-indian': require('../../../../packages/shared/assets/photos/portrait-indian.jpg'),
   'woman-running': require('../../../../packages/shared/assets/photos/woman-running.jpg'),

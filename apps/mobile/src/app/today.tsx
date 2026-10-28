@@ -68,6 +68,7 @@ export default function Today() {
   const today = state.today;
   const checkIn = checkInOn(state, today);
   const pregnant = state.profile.mode === 'pregnancy';
+  const menopause = state.profile.mode === 'menopause';
   const L = cs.avgCycleLength ?? 28; // drawing only; never shown as a "28-day assumption"
   const drop = useMemo(() => dropFillSvg((cs.cycleDay ?? 1) / L), [cs.cycleDay, L]);
   const ringSize = Math.round(Math.min(width - layout.screenPadding * 2, 440) * 0.54);
@@ -85,7 +86,7 @@ export default function Today() {
   return (
     <Screen back title="Today" right={<IconButton icon={CalendarDays} label="Calendar" onPress={() => router.push('/calendar')} />}>
       {/* Week strip with estimated cycle days */}
-      {!pregnant ? (
+      {!pregnant && !menopause ? (
         <View style={styles.week}>
           {Array.from({ length: 7 }, (_, i) => addDays(today, i - 3)).map((d) => {
             const kind = cs.hasData ? classifyDay(d, state.periods, cs) : 'none';
@@ -116,12 +117,19 @@ export default function Today() {
         </View>
       ) : null}
 
-      {/* Ring + cycle cards */}
+      {/* Ring + cycle cards (no estimates in pregnancy or menopause mode, P3-00) */}
       {pregnant ? (
         <Card tone="mint" style={{ marginTop: 6 }} onPress={() => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'pregnancy' } })} accessibilityLabel="Open Pregnancy wellness">
           <AppText variant="h3">Pregnancy mode is on</AppText>
           <AppText variant="small" muted style={{ marginTop: 4 }}>
             Cycle estimates are paused. Open Pregnancy wellness for your week-by-week view.
+          </AppText>
+        </Card>
+      ) : menopause ? (
+        <Card tone="lavender" style={{ marginTop: 6 }} onPress={() => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'menopause' } })} accessibilityLabel="Open Menopause">
+          <AppText variant="h3">Menopause mode is on</AppText>
+          <AppText variant="small" muted style={{ marginTop: 4 }}>
+            Period estimates are off. Open Menopause for your symptoms, sleep and strength view.
           </AppText>
         </Card>
       ) : cs.hasData ? (

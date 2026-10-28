@@ -33,7 +33,7 @@ const FACTORS = MOOD_FACTORS.map((f) => f.key);
 const MODES = ['cycle', 'pregnancy', 'perimenopause', 'menopause'] as const;
 const CONSENTS = ['health_processing', 'analytics', 'ai_personalization', 'health_integrations', 'notifications'] as const;
 const CONNECTIONS = ['apple_health', 'health_connect', 'wearable'] as const;
-const AVATARS = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4'] as const;
+const AVATARS = ['avatar-1', 'avatar-2', 'avatar-3', 'avatar-4', 'avatar-art-1', 'avatar-art-2', 'avatar-art-3', 'avatar-art-4', 'avatar-art-5'] as const;
 const ACTIVITY = ['sedentary', 'light', 'moderate', 'active'] as const;
 
 /** Actions a client may never send (identity, entitlement, role or whole-state replacement). */

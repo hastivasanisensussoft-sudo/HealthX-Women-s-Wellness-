@@ -7,6 +7,7 @@ export * from './cycle';
 export * from './plan';
 export * from './activity';
 export * from './lifeStage';
+export * from './lifeStageGuide';
 export * from './workoutBuilder';
 export * from './meals';
 export * from './premium';

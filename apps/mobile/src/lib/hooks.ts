@@ -1,4 +1,22 @@
 import { useEffect, useState } from 'react';
+import { AccessibilityInfo } from 'react-native';
+
+/** True while the OS asks for reduced motion (decorative animations then stay still). Updates live. */
+export function useReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((v) => alive && setReduce(v))
+      .catch(() => undefined);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return reduce;
+}
 
 /** Simulated network latency so loading skeletons are visible in the demo. */
 export function useDemoLoading(ms = 550): boolean {

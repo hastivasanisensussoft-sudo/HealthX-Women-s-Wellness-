@@ -7,6 +7,19 @@ import type { ImageSourcePropType } from 'react-native';
 export const PICTURES = {
   /** Home hero: a woman in a cream sweater, eyes closed in the sun, with the line "Better Days Ahead". */
   betterDays: require('../../assets/illustrations/better-days.jpg'),
+  /** Home hero, second slide: a smiling woman in pink pyjamas stretching in bed after waking (330 × 587). */
+  morningStretch: require('../../assets/illustrations/morning-stretch.png'),
+  /** Workouts slider: a woman sitting cross-legged on a purple mat, hands together, in a yoga room (736 × 1104). */
+  workoutNamaste: require('../../assets/illustrations/workout-namaste.jpg'),
+  /** Workouts slider: a woman in a seated side stretch, an "inhale exhale" banner on the wall (736 × 1308). */
+  workoutInhaleExhale: require('../../assets/illustrations/workout-inhale-exhale.jpg'),
+  /** Workouts slider: a woman in a backbend (wheel pose) on a lilac mat (383 × 680). */
+  workoutBackbend: require('../../assets/illustrations/workout-backbend.jpg'),
+  /**
+   * Workouts slider: a woman in a lunge with hands together on a blue mat (375 × 505). Cropped from a
+   * screenshot to drop its phone frame and another app's back button; its "Dola AI" watermark is kept.
+   */
+  workoutLunge: require('../../assets/illustrations/workout-lunge.jpg'),
   /** A girl daydreaming beside a sleeping cat, with the line "A softer me is still a strong me". */
   softerMe: require('../../assets/illustrations/softer-me.jpg'),
   /** "My symptoms" tile: a girl holding her stomach with cramps. */

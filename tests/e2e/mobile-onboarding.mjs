@@ -1,4 +1,5 @@
-// Mobile sign-up + onboarding order check on the Expo web export, API mode: consent before cycle data.
+// Mobile sign-up + onboarding order check on the Expo web export, API mode: the 9-step flow, consent before cycle data,
+// a skipped cycle step saving nothing assumed, and the 7-day trial chosen on the plan step.
 // Registers a disposable account (unique per run) through the UI, checks what the server stored, then deletes it.
 import { chromium } from 'playwright-core';
 import { API, serverView } from './mobile-api.mjs';
@@ -31,36 +32,48 @@ try {
   console.log('PASS server error shown inline for an existing email');
   await page.getByLabel('Email').first().fill(EMAIL);
   await page.getByText('Create account', { exact: true }).click();
-  await expect('Welcome to HealthX');
-  console.log('PASS account created on the server → onboarding');
-  await cont();
-  await expect('What are your goals?');
-  await cont();
-  await expect('About you');
+  // The flow: 1 Welcome → 2 Sign up → 3 About you (+ consent) → 4 Cycle → 5 Avatar → 6 Goals → 7 Plan → 8 Notifications → 9 Home.
+  await expect('Tell us about yourself');
+  await expect('Step 3 of 9');
+  console.log('PASS account created on the server → onboarding step 3 of 9 (about you)');
   await page.getByLabel('Day').fill('12');
   await page.getByLabel('Month').fill('3');
   await page.getByLabel('Year').fill('1996');
-  await cont();
   await expect('Your privacy, your choice');
-  console.log('PASS step 4/5 is consent (before any cycle questions)');
+  if (await page.getByText('Tell us about your cycle').count()) throw new Error('cycle questions shown before consent');
+  console.log('PASS consent closes step 3, before any cycle questions');
   await cont();
   await expect('Tell us about your cycle');
-  console.log('PASS step 5/5 is cycle');
+  await expect('Step 4 of 9');
+  console.log('PASS step 4/9 is cycle');
   await cont();
   await expect('Pick the first day of your last period');
   console.log('PASS cycle validation shown');
   await page.getByText('Skip', { exact: true }).click();
+  await expect('Choose your profile picture');
+  console.log('PASS Skip on cycle → step 5/9 avatar & profile image');
+  await cont();
+  await expect('What are your goals?');
+  console.log('PASS step 6/9 is goals');
+  await cont();
+  await expect('Choose your plan');
+  console.log('PASS step 7/9 is the subscription plan');
+  await page.getByRole('radio', { name: /^Premium plan/ }).click();
+  await page.getByRole('button', { name: 'Start 7-day free trial' }).click();
   await expect('Gentle reminders that help');
-  console.log('PASS Skip on cycle → reminders');
+  await expect('Step 8 of 9');
+  console.log('PASS trial started → step 8/9 notification preferences');
   await page.getByText('Not now', { exact: true }).click();
   await page.waitForURL('**/home', { timeout: 8000 });
-  console.log('PASS finish → home');
+  console.log('PASS finish → home (step 9)');
   await page.waitForTimeout(800);
   const sv = await serverView(EMAIL, PASSWORD);
   const st = await sv.state();
-  console.log(`server state: onboarded=${st.auth?.onboarded} name=${st.profile?.name} lastPeriodStart=${st.cycleProfile?.lastPeriodStart} healthConsent=${st.consents?.find((c) => c.id === 'health_processing')?.granted} periods=${st.periods.length}`);
+  console.log(`server state: onboarded=${st.auth?.onboarded} name=${st.profile?.name} plan=${st.profile?.plan} lastPeriodStart=${st.cycleProfile?.lastPeriodStart} healthConsent=${st.consents?.find((c) => c.id === 'health_processing')?.granted} periods=${st.periods.length}`);
   if (!st.auth?.onboarded) throw new Error('onboarding not stored on the server');
   console.log('PASS onboarding stored on the server');
+  if (st.profile?.plan !== 'premium') throw new Error('trial chosen in onboarding but the server plan is ' + st.profile?.plan);
+  console.log('PASS the server granted the 7-day trial chosen in onboarding');
   // Skipping the cycle step saves "not known" — never an assumed cycle length.
   const cp = st.cycleProfile;
   if (cp.lastPeriodStart !== null || cp.typicalCycleLength !== null || cp.typicalPeriodLength !== null || cp.regularity !== 'not_sure') throw new Error('skip saved assumed cycle values: ' + JSON.stringify(cp));

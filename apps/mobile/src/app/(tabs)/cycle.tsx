@@ -37,8 +37,11 @@ export default function CycleTab() {
   const recent = sortPeriods(state.periods).slice(-3).reverse();
   const openPeriod = state.periods.find((p) => p.end === null);
   const comfort = state.articles.find((a) => a.id === 'a_cramps_comfort' && a.status === 'published');
-  // Pregnancy mode pauses period and phase estimates (D-21); logged history stays visible.
-  const paused = state.profile.mode === 'pregnancy';
+  // Pregnancy mode pauses period and phase estimates (D-21); menopause mode turns them off, as it works
+  // without period data (P3-04). Logged history stays visible in both.
+  const menopause = state.profile.mode === 'menopause';
+  const paused = state.profile.mode === 'pregnancy' || menopause;
+  const pausedWord = menopause ? 'off' : 'paused';
   const basis = estimateBasis(state);
 
   const phaseRanges = useMemo(() => {
@@ -55,11 +58,25 @@ export default function CycleTab() {
   }, [cs]);
 
   const nextLabel = openPeriod ? 'Period' : 'Next period';
-  const nextValue = openPeriod ? `Day ${diffDays(openPeriod.start, state.today) + 1}` : paused ? 'Paused' : cs.daysUntilNextPeriod != null ? `~${Math.max(0, cs.daysUntilNextPeriod)} days*` : '—';
+  const nextValue = openPeriod ? `Day ${diffDays(openPeriod.start, state.today) + 1}` : paused ? (menopause ? 'Off' : 'Paused') : cs.daysUntilNextPeriod != null ? `~${Math.max(0, cs.daysUntilNextPeriod)} days*` : '—';
 
   return (
     <Screen title="Cycle" eyebrow={cs.hasData && cs.cycleDay ? `Cycle day ${cs.cycleDay}` : 'Your cycle'} subtitle="Estimates learn from the periods you log." largeTitle tabBarSpace>
-      {paused && !loading ? (
+      {menopause && !loading ? (
+        <Card tone="lavender" style={{ marginBottom: 14, gap: 8 }} onPress={() => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'menopause' } })} accessibilityLabel="Menopause mode is on. Open menopause">
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+            <Flower2 size={18} color={palette.lavender[700]} />
+            <AppText variant="bodyMedium" style={{ flex: 1 }}>
+              Menopause mode is on
+            </AppText>
+            <ChevronRight size={16} color={palette.lavender[700]} />
+          </View>
+          <AppText variant="caption" muted>
+            Period estimates, phases and period reminders are off. You can still log any bleeding, and your history is kept.
+          </AppText>
+        </Card>
+      ) : null}
+      {paused && !menopause && !loading ? (
         <Card tone="mint" style={{ marginBottom: 14, gap: 8 }} onPress={() => router.push({ pathname: '/life-stage/[mode]', params: { mode: 'pregnancy' } })} accessibilityLabel="Pregnancy mode is on. Open pregnancy wellness">
           <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
             <Baby size={18} color={palette.green[700]} />
@@ -114,7 +131,7 @@ export default function CycleTab() {
                 <View style={styles.phaseChip}>
                   <View style={[styles.phaseDot, { backgroundColor: cs.phase ? phaseColors[cs.phase].solid : palette.ink[300] }]} />
                   <AppText variant="caption" color={palette.green[900]} style={{ fontFamily: font.semibold, flexShrink: 1 }} numberOfLines={2}>
-                    {paused ? 'Phase estimates paused' : phaseText(cs)}
+                    {paused ? `Phase estimates ${pausedWord}` : phaseText(cs)}
                   </AppText>
                 </View>
               </View>
@@ -155,7 +172,7 @@ export default function CycleTab() {
           <EstimateNote compact style={{ marginTop: 10 }} text="Estimate based on the information you’ve provided — not a confirmation of ovulation." />
           <View style={styles.basisRow}>
             <View style={{ flex: 1 }}>
-              <AppText variant="smallMedium">{paused ? 'Estimates paused' : basis.label}</AppText>
+              <AppText variant="smallMedium">{paused ? `Estimates ${pausedWord}` : basis.label}</AppText>
               <AppText variant="caption" muted>
                 {basis.detail} {cs.isRegular === null ? 'Regularity not known yet.' : cs.isRegular ? 'Lengths look fairly consistent.' : 'Lengths vary.'}
               </AppText>
@@ -209,7 +226,7 @@ export default function CycleTab() {
             <QuickTile tone="peach" icon={Stethoscope} label="Symptoms" hint="How you feel" onPress={() => router.push('/symptoms')} style={styles.tile} />
             <QuickTile tone="lavender" icon={Smile} label="Mood" hint="Stress & energy" onPress={() => router.push('/mood')} style={styles.tile} />
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Fertility awareness, Phase 3 preview" onPress={() => router.push('/fertility')} style={({ pressed }) => [styles.fertility, pressed && { opacity: 0.94 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Fertility awareness" onPress={() => router.push('/fertility')} style={({ pressed }) => [styles.fertility, pressed && { opacity: 0.94 }]}>
             <Photo photo="woman-tea" style={styles.fertilityPhoto} radius={18} position="top" />
             <View style={{ flex: 1, gap: 4 }}>
               <PhaseBadge phase={3} />

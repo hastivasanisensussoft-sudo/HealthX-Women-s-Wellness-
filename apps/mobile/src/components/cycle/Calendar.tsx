@@ -15,6 +15,7 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText } from '../Text';
+import { useStore } from '@/lib/store';
 import { brandText, colors, fertile, font, palette } from '@/lib/theme';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -168,13 +169,19 @@ export function MonthCalendar({
   );
 }
 
-/** Seven-day strip (Mira reference): the selected day is a mint pill holding weekday and date. */
+/**
+ * Seven-day strip (Mira reference): the selected day is a mint pill holding weekday and date.
+ * Estimates are left out while pregnancy or menopause mode is on (P3-00); logged periods always show.
+ */
 export function WeekStrip({ state, periods, onSelect, selected }: { state: CycleState; periods: PeriodLog[]; onSelect?: (d: ISODate) => void; selected?: ISODate }) {
+  const mode = useStore().state.profile.mode;
+  const showEstimates = mode !== 'pregnancy' && mode !== 'menopause';
   const days = Array.from({ length: 7 }, (_, i) => addDays(state.today, i - 3));
   return (
     <View style={styles.week}>
       {days.map((d) => {
-        const kind = classifyDay(d, periods, state);
+        const logged = classifyDay(d, periods, state);
+        const kind = !showEstimates && logged !== 'period' ? 'none' : logged;
         const isToday = d === state.today;
         const sel = selected ? selected === d : isToday;
         const markColor = kind === 'period' ? palette.rose[500] : kind === 'predicted_period' ? palette.rose[300] : kind === 'none' ? 'transparent' : fertile[400];

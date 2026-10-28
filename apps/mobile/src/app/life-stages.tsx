@@ -1,4 +1,4 @@
-/** Life-stage mode switch (SRS §20–§25 — Phase 3 previews; mockup M44). Your history is always kept. */
+/** Life-stage mode switch (SRS §20–§25, P3-00; mockup M44). Each mode screen confirms the switch first; your history is always kept. */
 import { COPY, type LifeStageMode, type PhotoKey } from '@healthx/shared';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -40,7 +40,7 @@ export default function LifeStages() {
     router.push({ pathname: '/life-stage/[mode]', params: { mode: picked } });
   };
   const stay = picked === current && picked === 'cycle';
-  const label = stay ? 'Keep cycle tracking' : picked === current ? 'Open current mode' : picked === 'cycle' ? 'Switch to cycle tracking' : 'Preview & switch mode';
+  const label = stay ? 'Keep cycle tracking' : picked === current ? 'Open current mode' : picked === 'cycle' ? 'Switch to cycle tracking' : 'Open & switch mode';
 
   return (
     <Screen back largeTitle eyebrow="Every stage of life" title="Life stage mode" footer={<Button label={label} size="lg" full onPress={stay ? () => router.back() : go} />}>

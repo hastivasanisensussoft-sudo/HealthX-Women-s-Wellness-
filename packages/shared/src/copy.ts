@@ -29,5 +29,5 @@ export const DEMO = {
   banner: 'Demo mode — all data is sample data stored only in this browser/device.',
   needsBackend: 'Requires backend — simulated in this demo',
   phase2: 'Phase 2',
-  phase3: 'Phase 3 preview',
+  phase3: 'Phase 3',
 } as const;

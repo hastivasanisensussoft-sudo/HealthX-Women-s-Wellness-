@@ -23,7 +23,7 @@ import {
 } from 'lucide-react-native';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { MoodFace } from '@/components/Art';
+import { ArtFigure, MoodFace } from '@/components/Art';
 import { PhaseBadge } from '@/components/Badges';
 import { GlassTag, GroupHeader, HScroll, HeroPanel, PageIntro, PhotoPanel, RingStat, TintIcon, ON_DARK } from '@/components/b-kit';
 import { Photo } from '@/components/Photo';
@@ -33,6 +33,7 @@ import { QuickTile } from '@/components/Tiles';
 import { VideoCard } from '@/components/Video';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
+import { WELCOME_ART } from '@/lib/welcomeArt';
 
 export default function WellnessHub() {
   const { state } = useStore();
@@ -123,7 +124,7 @@ export default function WellnessHub() {
             </AppText>
           </View>
         </View>
-        <Photo photo="woman-reading" shape="arch" radius={20} style={styles.libImg} />
+        <ArtFigure source={WELCOME_ART.calendar} height={128} glow={palette.green[100]} decor="mini" light style={styles.libImg} />
       </Pressable>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Most asked questions" onPress={go('/learn/faq')} style={({ pressed }) => [styles.small, pressed && { opacity: 0.9 }]}>
@@ -167,7 +168,7 @@ export default function WellnessHub() {
       </HeroPanel>
       <Pressable accessibilityRole="button" accessibilityLabel="Community" onPress={go('/community')} style={({ pressed }) => [styles.community, pressed && { opacity: 0.92 }]}>
         <View style={styles.avatars}>
-          {(['avatar-1', 'avatar-2', 'avatar-3'] as const).map((a, i) => (
+          {(['avatar-art-2', 'avatar-art-3', 'avatar-art-5'] as const).map((a, i) => (
             <Photo key={a} photo={a} shape="circle" style={[styles.face, { marginLeft: i ? -12 : 0 }]} />
           ))}
         </View>
@@ -193,7 +194,8 @@ const styles = StyleSheet.create({
   cell: { width: '31%', flexGrow: 1 },
   lib: { flexDirection: 'row', height: 132, borderRadius: 24, overflow: 'hidden', backgroundColor: palette.green[50], borderWidth: 1, borderColor: palette.green[100] },
   libText: { flex: 1, padding: 16, justifyContent: 'space-between' },
-  libImg: { width: 112, height: 120, marginTop: 12, marginRight: 14 },
+  // The cut-out figure stands on the card's bottom edge.
+  libImg: { width: 116, alignSelf: 'flex-end', marginRight: 10 },
   pill: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
   small: { flex: 1, borderRadius: 22, padding: 14, backgroundColor: palette.green[50], borderWidth: 1, borderColor: palette.green[100], minHeight: 128 },
   coachIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },

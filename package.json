@@ -14,6 +14,6 @@
     "web:typecheck": "npm --prefix apps/web run typecheck",
     "mobile": "npm --prefix apps/mobile run start",
     "mobile:web": "npm --prefix apps/mobile run web",
-    "shared:test": "cd apps/api && npx tsx --test ../../packages/shared/test/cycle.test.ts ../../packages/shared/test/wellness.test.ts ../../packages/shared/test/modules.test.ts"
+    "shared:test": "cd apps/api && npx tsx --test ../../packages/shared/test/cycle.test.ts ../../packages/shared/test/wellness.test.ts ../../packages/shared/test/modules.test.ts ../../packages/shared/test/lifeStages.test.ts"
   }
 }

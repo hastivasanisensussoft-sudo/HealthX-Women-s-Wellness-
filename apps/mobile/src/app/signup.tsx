@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/api';
 import { isEmail } from '@/lib/hooks';
 import { errorMessage, useStore } from '@/lib/store';
 import { colors, font, palette } from '@/lib/theme';
+import { WELCOME_ART } from '@/lib/welcomeArt';
 
 const STRENGTH = ['Too short', 'Weak', 'Good', 'Strong'];
 
@@ -56,7 +57,7 @@ export default function Signup() {
     <AuthShell
       title="Create your account"
       subtitle="Free · takes 1 minute"
-      photo="portrait-indian"
+      art={WELCOME_ART.tea}
       eyebrow="Join HealthX"
       tagline="A calm, private start — at your own pace."
       footer={

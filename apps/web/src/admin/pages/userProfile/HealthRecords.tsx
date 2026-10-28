@@ -26,7 +26,7 @@ import { Badge, Card, CardHeader, Notice } from '@/components/ui';
 import { articleTitle } from '../../appActivity';
 
 const label = <K extends string>(list: { key: K; label: string }[], k: K | undefined) => (k ? (list.find((x) => x.key === k)?.label ?? k) : '—');
-const LIFE: Record<AppState['profile']['mode'], string> = { cycle: 'Cycle tracking', pregnancy: 'Pregnancy wellness (Phase 3 preview)', perimenopause: 'Perimenopause (Phase 3 preview)', menopause: 'Menopause (Phase 3 preview)' };
+const LIFE: Record<AppState['profile']['mode'], string> = { cycle: 'Cycle tracking', pregnancy: 'Pregnancy wellness', perimenopause: 'Perimenopause', menopause: 'Menopause' };
 const MAX_ROWS = 12;
 
 function Section({ id, title, subtitle, icon, children, count }: { id: string; title: string; subtitle?: string; icon: ReactNode; children: ReactNode; count?: number }) {
@@ -181,7 +181,7 @@ export function HealthRecords({ record: s }: { record: AppState }) {
         </div>
       </Section>
 
-      <Section id="hr-life" title="Life stage & pregnancy wellness" subtitle="§22–§25 (Phase 3 preview in the app)" icon={<Sprout className="h-5 w-5" />} count={lifeSymptoms.length}>
+      <Section id="hr-life" title="Life stage & pregnancy wellness" subtitle="§22–§25 (Phase 3)" icon={<Sprout className="h-5 w-5" />} count={lifeSymptoms.length}>
         <Facts
           items={[
             ['Current mode', LIFE[s.profile.mode]],

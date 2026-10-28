@@ -1,24 +1,33 @@
 /**
- * AI Wellness Coach — Premium, Phase 2, SIMULATED (SRS §34, §23, §35, §67). Keyword rules from shared
- * `simulateCoachReply`: declines diagnosis, redirects emergencies to care. With the AI-personalisation
- * consent, replies can add notes from the person's weekly summaries (`coachContextOf`); without it, general answers only.
+ * AI Wellness Coach — Premium, Phase 2 (SRS §34, §23, §35, §67; P2-01). Answers come from
+ * `lib/coachClient` (simulated keyword rules until the AI provider is connected), always through the
+ * shared output filter; emergencies are redirected on the phone and offer "Get urgent help". With the
+ * AI-personalisation consent, replies can add notes from the person's weekly summaries (`coachContextOf`).
+ * The conversation is kept on this phone (small, capped) and can be deleted; questions are limited per day.
  */
-import { COACH_STARTERS, COPY, coachContextOf, simulateCoachReply, type CoachReply } from '@healthx/shared';
+import { COACH_DAILY_LIMIT, COACH_MAX_CHARS, COACH_STARTERS, COPY, coachContextOf, type CoachReply, type ISODate } from '@healthx/shared';
 import { router } from 'expo-router';
-import { ChevronRight, OctagonAlert, Send, ShieldAlert, Sparkles, UserCheck, UserX } from 'lucide-react-native';
+import { ChevronRight, OctagonAlert, RotateCcw, Send, ShieldAlert, Sparkles, Trash2, UserCheck, UserX, WifiOff } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LogoMark } from '@/components/Art';
 import { BackendNote, Disclaimer, PhaseBadge } from '@/components/Badges';
+import { Button, IconButton } from '@/components/Button';
 import { PremiumGate, usePremium } from '@/components/PremiumGate';
 import { Screen } from '@/components/Screen';
+import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
+import { UrgentHelpSheet } from '@/components/UrgentHelp';
 import { Leaf } from '@/components/b-kit';
+import { COACH_SIMULATED, askCoach } from '@/lib/coachClient';
+import { DEVICE_ONLY_NOTE } from '@/lib/deviceData';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
+import { useToast } from '@/lib/toast';
 import { track } from '@/lib/track';
+import { useDeviceData } from '@/lib/useDeviceData';
 
 interface Msg {
   id: number;
@@ -26,6 +35,15 @@ interface Msg {
   text: string;
   reply?: CoachReply;
 }
+
+const GREETING: Msg = { id: 0, from: 'coach', text: "Hi! I'm your HealthX wellness coach. Ask me about sleep, movement, stress, hydration or your cycle." };
+/** Phone storage is meant for small items, so only the latest part of the conversation is kept. */
+const MAX_STORED_CHARS = 1800;
+const trim = (list: Msg[]) => {
+  const out = list.slice(-12);
+  while (out.length > 2 && JSON.stringify(out).length > MAX_STORED_CHARS) out.shift();
+  return out;
+};
 
 /** The shared notes start with "From your logs:" — the bubble already has that heading. */
 const tidy = (p: string) => {
@@ -63,44 +81,70 @@ function CoachAvatar() {
 export default function Coach() {
   const insets = useSafeAreaInsets();
   const { state } = useStore();
+  const toast = useToast();
   const premium = usePremium();
   const personalised = !!state.consents.find((c) => c.id === 'ai_personalization')?.granted;
-  const [msgs, setMsgs] = useState<Msg[]>([
-    { id: 0, from: 'coach', text: "Hi! I'm your HealthX wellness coach (simulated in this demo). Ask me about sleep, movement, stress, hydration or your cycle." },
-  ]);
+  const chat = useDeviceData<Msg[]>('coach-chat', []);
+  const usage = useDeviceData<{ date: ISODate | ''; count: number }>('coach-usage', { date: '', count: 0 });
   const [text, setText] = useState('');
   const [typing, setTyping] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [urgent, setUrgent] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
-  const nextId = useRef(1);
+  const msgs = [GREETING, ...chat.value];
+  const usedToday = usage.value.date === state.today ? usage.value.count : 0;
+  const left = Math.max(0, COACH_DAILY_LIMIT - usedToday);
 
-  const send = (value: string) => {
+  const send = async (value: string, retry = false) => {
     const v = value.trim();
-    if (!premium || !v || typing) return;
-    if (v.length > 500) return;
-    const id = (nextId.current += 2);
-    // Weekly summaries only, and only with the AI-personalisation consent (null otherwise).
-    const ctx = coachContextOf(state);
-    setMsgs((m) => [...m, { id, from: 'user', text: v }]);
-    track('ai_question_asked'); // that a question was asked — never its text
+    if (!premium || !v || typing || v.length > COACH_MAX_CHARS || left === 0) return;
+    if (!retry) chat.set((prev) => trim([...prev, { id: Date.now(), from: 'user', text: v }]));
+    setFailed(null);
     setText('');
     setTyping(true);
-    setTimeout(() => {
-      const reply = simulateCoachReply(v, ctx);
-      setMsgs((m) => [...m, { id: id + 1, from: 'coach', text: reply.text, reply }]);
+    track('ai_question_asked'); // that a question was asked — never its text
+    usage.set((u) => ({ date: state.today, count: (u.date === state.today ? u.count : 0) + 1 }));
+    try {
+      // Weekly summaries only, and only with the AI-personalisation consent (null otherwise).
+      const reply = await askCoach(v, coachContextOf(state));
+      chat.set((prev) => trim([...prev, { id: Date.now() + 1, from: 'coach', text: reply.text, reply }]));
+    } catch {
+      setFailed(v);
+    } finally {
       setTyping(false);
-    }, 900);
+    }
+  };
+
+  const pickSuggestion = (s: string) => {
+    // "Read: <article title>" opens that article instead of asking.
+    const title = /^Read:\s*(.+)$/i.exec(s)?.[1]?.toLowerCase();
+    const article = title ? state.articles.find((a) => a.status === 'published' && a.title.toLowerCase() === title) : undefined;
+    if (article) return router.push({ pathname: '/learn/[id]', params: { id: article.id } });
+    void send(title ? s.replace(/^Read:\s*/i, '') : s);
   };
 
   useEffect(() => {
     setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 60);
-  }, [msgs, typing]);
+  }, [chat.value.length, typing, failed]);
 
   const last = msgs[msgs.length - 1];
-  const suggestions = last.from === 'coach' ? last.reply?.suggestions ?? (msgs.length === 1 ? COACH_STARTERS : []) : [];
+  const suggestions = !failed && last.from === 'coach' ? last.reply?.suggestions ?? (msgs.length === 1 ? COACH_STARTERS : []) : [];
   const ConsentIcon = personalised ? UserCheck : UserX;
 
   return (
-    <Screen back title="AI wellness coach" right={<PhaseBadge phase={2} />} scroll={false} padded={false} background={colors.background}>
+    <Screen
+      back
+      title="AI wellness coach"
+      right={
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {premium && chat.value.length ? <IconButton icon={Trash2} label="Delete conversation" size={36} onPress={() => setConfirmClear(true)} /> : null}
+          <PhaseBadge phase={2} />
+        </View>
+      }
+      scroll={false}
+      padded={false}
+      background={colors.background}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={60}>
         <ScrollView ref={scroll} contentContainerStyle={{ padding: 20, gap: 12 }} keyboardShouldPersistTaps="handled">
           {/* Coach intro */}
@@ -111,7 +155,7 @@ export default function Coach() {
             </View>
             <View style={{ flex: 1 }}>
               <AppText variant="overline" color={palette.green[700]}>
-                Simulated · general wellness
+                {COACH_SIMULATED ? 'Simulated · general wellness' : 'General wellness'}
               </AppText>
               <AppText variant="h2">Your wellness coach</AppText>
               <AppText variant="small" muted style={{ marginTop: 2 }}>
@@ -173,6 +217,7 @@ export default function Coach() {
                         </AppText>
                       </View>
                     ))}
+                    {m.reply?.kind === 'emergency' ? <Button label="Get urgent help" icon={OctagonAlert} variant="danger" size="sm" onPress={() => setUrgent(true)} style={{ alignSelf: 'flex-start', marginTop: 10 }} /> : null}
                     {m.reply?.personal?.length ? (
                       <View style={styles.personal}>
                         <View style={styles.kind}>
@@ -201,6 +246,21 @@ export default function Coach() {
                 <Typing />
               </View>
             ) : null}
+            {failed ? (
+              <View style={styles.coachRow}>
+                <CoachAvatar />
+                <View style={[styles.bubble, styles.coach, styles.failed]} accessibilityRole="alert">
+                  <View style={styles.kind}>
+                    <WifiOff size={16} color={palette.ink[600]} />
+                    <AppText variant="smallMedium" color={palette.ink[700]}>
+                      No answer this time
+                    </AppText>
+                  </View>
+                  <AppText variant="small">The coach didn’t answer. Check your connection and try again.</AppText>
+                  <Button label="Try again" icon={RotateCcw} variant="soft" size="sm" onPress={() => void send(failed, true)} style={{ alignSelf: 'flex-start', marginTop: 10 }} />
+                </View>
+              </View>
+            ) : null}
             {suggestions.length ? (
               <View>
                 <AppText variant="overline" color={colors.textSubtle} style={{ marginBottom: 8, marginLeft: 40 }}>
@@ -208,7 +268,7 @@ export default function Coach() {
                 </AppText>
                 <View style={styles.suggestions}>
                   {suggestions.map((s) => (
-                    <Pressable key={s} accessibilityRole="button" onPress={() => send(s)} style={({ pressed }) => [styles.suggestion, pressed && { opacity: 0.85 }]}>
+                    <Pressable key={s} accessibilityRole="button" onPress={() => pickSuggestion(s)} style={({ pressed }) => [styles.suggestion, pressed && { opacity: 0.85 }]}>
                       <Sparkles size={13} color={palette.green[600]} />
                       <AppText variant="smallMedium" color={brandText}>
                         {s}
@@ -218,11 +278,32 @@ export default function Coach() {
                 </View>
               </View>
             ) : null}
+            {premium && chat.value.length ? (
+              <AppText variant="caption" muted center>
+                Your recent conversation is kept so you can come back to it. {DEVICE_ONLY_NOTE}
+              </AppText>
+            ) : null}
           </PremiumGate>
-          <BackendNote text="Simulated replies (keyword rules). The real coach needs an AI provider, safety evals and an AI data policy (D-11, D-12)." />
+          {COACH_SIMULATED ? <BackendNote text="Simulated replies (keyword rules) through the same safety filter a real AI provider will use. Connecting the provider needs the backend AI module, safety evals and the AI data policy (D-11, D-12)." /> : null}
         </ScrollView>
-        {premium ? (
+        {premium && left === 0 ? (
+          <View style={[styles.composer, styles.limit, { paddingBottom: insets.bottom + 12 }]} accessibilityRole="alert">
+            <AppText variant="smallMedium" center>
+              You’ve asked {COACH_DAILY_LIMIT} questions today — that’s the daily limit.
+            </AppText>
+            <AppText variant="caption" muted center>
+              Come back tomorrow. For anything urgent, contact a healthcare professional.
+            </AppText>
+          </View>
+        ) : premium ? (
           <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
+            {left <= 5 || text.length > COACH_MAX_CHARS - 100 ? (
+              <AppText variant="caption" muted style={{ position: 'absolute', top: -20, left: 22 }}>
+                {left <= 5 ? `${left} question${left === 1 ? '' : 's'} left today` : ''}
+                {left <= 5 && text.length > COACH_MAX_CHARS - 100 ? ' · ' : ''}
+                {text.length > COACH_MAX_CHARS - 100 ? `${text.length}/${COACH_MAX_CHARS}` : ''}
+              </AppText>
+            ) : null}
             <TextInput
               accessibilityLabel="Message the coach"
               value={text}
@@ -230,11 +311,11 @@ export default function Coach() {
               placeholder="Ask a wellness question…"
               placeholderTextColor={colors.textSubtle}
               style={styles.input}
-              maxLength={500}
+              maxLength={COACH_MAX_CHARS}
               multiline
-              onSubmitEditing={() => send(text)}
+              onSubmitEditing={() => void send(text)}
             />
-            <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={() => send(text)} disabled={!text.trim() || typing} style={[styles.send, (!text.trim() || typing) && { opacity: 0.4 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={() => void send(text)} disabled={!text.trim() || typing} style={[styles.send, (!text.trim() || typing) && { opacity: 0.4 }]}>
               <Send size={18} color="#fff" />
             </Pressable>
           </View>
@@ -242,6 +323,32 @@ export default function Coach() {
           <View style={{ height: insets.bottom }} />
         )}
       </KeyboardAvoidingView>
+
+      <UrgentHelpSheet visible={urgent} onClose={() => setUrgent(false)} />
+      <Sheet
+        visible={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        eyebrow="AI coach"
+        title="Delete this conversation?"
+        subtitle="Your questions and the coach’s answers are removed from this phone. This can’t be undone."
+        footer={
+          <View style={{ gap: 8 }}>
+            <Button
+              label="Delete conversation"
+              variant="danger"
+              full
+              onPress={() => {
+                chat.set([]);
+                setFailed(null);
+                setConfirmClear(false);
+                toast('Conversation deleted');
+              }}
+            />
+            <Button label="Keep it" variant="ghost" full onPress={() => setConfirmClear(false)} />
+          </View>
+        }>
+        <View />
+      </Sheet>
     </Screen>
   );
 }
@@ -256,6 +363,7 @@ const styles = StyleSheet.create({
   coach: { backgroundColor: colors.surface, borderBottomLeftRadius: 6, borderWidth: 1, borderColor: colors.borderSoft, flexShrink: 1 },
   emergency: { backgroundColor: colors.dangerSoft, borderColor: '#F5C2C2' },
   declined: { backgroundColor: palette.butter[50], borderColor: palette.butter[200] },
+  failed: { backgroundColor: palette.ink[50], borderColor: palette.ink[200] },
   kind: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   bullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.green[500], marginTop: 9 },
   bulletSmall: { backgroundColor: palette.lavender[500], marginTop: 7 },
@@ -264,6 +372,7 @@ const styles = StyleSheet.create({
   suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingLeft: 40 },
   suggestion: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: palette.green[200] },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  limit: { flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 14 },
   input: { flex: 1, minHeight: 48, maxHeight: 120, borderRadius: 24, backgroundColor: palette.green[50], paddingHorizontal: 18, paddingTop: 13, paddingBottom: 13, fontFamily: font.medium, fontSize: 15, color: colors.text },
   send: { width: 48, height: 48, borderRadius: 24, backgroundColor: palette.green[700], alignItems: 'center', justifyContent: 'center' },
 });
