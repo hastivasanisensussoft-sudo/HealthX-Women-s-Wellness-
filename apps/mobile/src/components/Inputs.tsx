@@ -1,5 +1,5 @@
 /** Evergreen form controls: 52 px fields, pill chips and segmented controls, sliders, steppers and selects. */
-import { Check, ChevronDown, CircleAlert, Minus, Plus, Search, X } from 'lucide-react-native';
+import { Check, ChevronDown, CircleAlert, Minus, Plus, Search, X, type LucideIcon } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, TextInput, View, type GestureResponderEvent, type KeyboardTypeOptions, type StyleProp, type ViewStyle } from 'react-native';
 
@@ -148,27 +148,34 @@ export function Segmented<T extends string>({
   onChange,
   style,
   tone = 'green',
+  solid,
 }: {
-  options: { key: T; label: string }[];
+  /** Optional icon per option (additive). */
+  options: { key: T; label: string; icon?: LucideIcon }[];
   value: T;
   onChange: (v: T) => void;
   style?: ViewStyle;
   /** Accent of the active option (additive). */
   tone?: SegTone;
+  /** Larger control with a filled deep-green active pill and white label (additive). */
+  solid?: boolean;
 }) {
   const t = SEG_TONES[tone];
   return (
-    <View style={[styles.segment, style]} accessibilityRole="tablist">
+    <View style={[styles.segment, solid && styles.segSolid, style]} accessibilityRole="tablist">
       {options.map((o) => {
         const active = o.key === value;
+        const Icon = o.icon;
+        const fg = active ? (solid ? '#FFFFFF' : t.fg) : palette.ink[600];
         return (
           <Pressable
             key={o.key}
             accessibilityRole="tab"
             aria-selected={active}
             onPress={() => onChange(o.key)}
-            style={({ pressed }) => [styles.segItem, active && [styles.segActive, { borderColor: t.border }], pressed && !active && { backgroundColor: palette.green[100] }]}>
-            <AppText variant="smallMedium" color={active ? t.fg : palette.ink[600]} numberOfLines={1} style={active ? { fontFamily: font.bold } : undefined}>
+            style={({ pressed }) => [styles.segItem, solid && styles.segItemSolid, Icon && styles.segItemIcon, active && (solid ? styles.segActiveSolid : [styles.segActive, { borderColor: t.border }]), pressed && !active && { backgroundColor: palette.green[100] }]}>
+            {Icon ? <Icon size={solid ? 19 : 16} color={fg} /> : null}
+            <AppText variant="smallMedium" color={active ? (solid ? '#FFFFFF' : t.fg) : palette.ink[600]} numberOfLines={1} style={[active ? { fontFamily: font.bold } : undefined, solid && { fontSize: 15.5, fontFamily: active ? font.bold : font.semibold }]}>
               {o.label}
             </AppText>
           </Pressable>
@@ -344,6 +351,10 @@ const styles = StyleSheet.create({
   rowBorder: { borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
   segment: { flexDirection: 'row', backgroundColor: palette.green[50], borderRadius: 999, padding: 4, borderWidth: 1, borderColor: palette.green[100] },
   segItem: { flex: 1, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 999, paddingHorizontal: 8, borderWidth: 1, borderColor: 'transparent' },
+  segSolid: { padding: 5, backgroundColor: '#F2FAF5', borderColor: '#DDF0E5', shadowColor: '#0D4336', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
+  segItemSolid: { minHeight: 46 },
+  segItemIcon: { flexDirection: 'row', gap: 8 },
+  segActiveSolid: { backgroundColor: palette.green[700], borderColor: palette.green[700], shadowColor: '#0D4336', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   segActive: { backgroundColor: colors.surface, shadowColor: '#0D4336', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   chip: {
     flexDirection: 'row',

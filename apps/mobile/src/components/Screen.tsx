@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { ChevronLeft, X } from 'lucide-react-native';
-import type { ReactNode } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
+import type { ReactNode, Ref } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewInstance, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from './Text';
@@ -29,6 +29,8 @@ interface ScreenProps {
   footer?: ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
+  /** Optional handle on the scroll view (e.g. to scroll to a section of the screen). */
+  scrollRef?: Ref<ScrollViewInstance>;
 }
 
 export function goBack() {
@@ -67,6 +69,7 @@ export function Screen({
   footer,
   onRefresh,
   refreshing = false,
+  scrollRef,
 }: ScreenProps) {
   const insets = useSafeAreaInsets();
   const header =
@@ -120,6 +123,7 @@ export function Screen({
       {header}
       {scroll ? (
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[pad, { paddingBottom: bottom }, contentStyle]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"

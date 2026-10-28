@@ -4,14 +4,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Brain, Check, CircleAlert, ListChecks, Moon, Plus, Stethoscope, Timer, Zap } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
-import { Leaf, MoodFace, Sparkle } from '@/components/Art';
+import { Leaf, Sparkle } from '@/components/Art';
 import { Disclaimer } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Chip, Slider, Stepper } from '@/components/Inputs';
 import { fmtSleep } from '@/components/Kit';
+import { MoodAvatar } from '@/components/MoodAvatar';
 import { Screen, goBack } from '@/components/Screen';
 import { AppText } from '@/components/Text';
 import { simulate } from '@/lib/hooks';
@@ -43,6 +44,9 @@ export default function CheckIn() {
     started.current = Date.now();
   }, []);
   const [mood, setMood] = useState<MoodLevel | null>(existing?.mood ?? null);
+  // five faces share the card width: ~58 px on a 390 px phone, smaller on narrow ones (selected face +4)
+  const { width: winW } = useWindowDimensions();
+  const face = Math.round(Math.max(44, Math.min(60, (winW - 96) / 5)));
   const [energy, setEnergy] = useState(existing?.energy ?? 6);
   const [stress, setStress] = useState(existing?.stress ?? 4);
   const [sleep, setSleep] = useState(existing?.sleepHours ?? 7);
@@ -106,7 +110,7 @@ export default function CheckIn() {
         </View>
         <Card tone="mint" style={{ marginTop: 20, gap: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <MoodFace mood={mood} size={52} ring={colors.surface} />
+            <MoodAvatar mood={mood} size={56} />
             <View style={{ flex: 1 }}>
               <AppText variant="overline" color={palette.green[700]}>
                 Today you feel
@@ -192,8 +196,8 @@ export default function CheckIn() {
                   setError(null);
                 }}
                 style={styles.moodItem}>
-                <View style={[styles.mood, on && styles.moodOn, !!mood && !on && { opacity: 0.55 }]}>
-                  <MoodFace mood={m.key} size={on ? 54 : 46} />
+                <View style={[styles.mood, { width: face + 4, height: face + 4 }, !!mood && !on && { opacity: 0.55 }]}>
+                  <MoodAvatar mood={m.key} size={on ? face + 4 : face} selected={on} selectedColor={palette.green[600]} />
                 </View>
                 <AppText variant="caption" color={on ? brandText : palette.ink[600]} style={{ fontFamily: on ? font.bold : font.medium, fontSize: 11 }} numberOfLines={1}>
                   {m.label}
@@ -266,8 +270,8 @@ const styles = StyleSheet.create({
   heroTitle: { fontFamily: font.display, fontSize: 22, lineHeight: 28, letterSpacing: -0.3, color: colors.text, textAlign: 'center', marginTop: 4 },
   moods: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 16 },
   moodItem: { flex: 1, alignItems: 'center', gap: 6 },
-  mood: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, ...shadow.card },
-  moodOn: { width: 66, height: 66, borderRadius: 33, borderWidth: 3, borderColor: palette.green[600] },
+  // the avatar draws its own white ring, shadow and (when selected) the green ring
+  mood: { alignItems: 'center', justifyContent: 'center' },
   error: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 },
   blockHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   blockIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },

@@ -23,7 +23,8 @@ import {
 } from 'lucide-react-native';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ArtFigure, MoodFace } from '@/components/Art';
+import { ArtFigure } from '@/components/Art';
+import { MoodAvatar } from '@/components/MoodAvatar';
 import { PhaseBadge } from '@/components/Badges';
 import { GlassTag, GroupHeader, HScroll, HeroPanel, PageIntro, PhotoPanel, RingStat, TintIcon, ON_DARK } from '@/components/b-kit';
 import { Photo } from '@/components/Photo';
@@ -63,7 +64,7 @@ export default function WellnessHub() {
         </AppText>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}>
           {(['excellent', 'good', 'neutral', 'low', 'very_low'] as const).map((m) => (
-            <MoodFace key={m} mood={m} size={32} ring={ci?.mood === m ? '#fff' : undefined} />
+            <MoodAvatar key={m} mood={m} size={40} selected={ci?.mood === m} />
           ))}
           <View style={styles.heroGo}>
             <ChevronRight size={18} color={palette.green[900]} />

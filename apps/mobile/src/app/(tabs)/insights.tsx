@@ -2,23 +2,25 @@
  * Insights (SRS §17, §36, §37, §61): forest summary hero, rule-based observed patterns, trend charts, report scopes and the score breakdown.
  * Phase-1 insights, trends and the weekly report are free; Phase-2 insight rules are Premium (advanced insights).
  */
-import { COPY, computeInsights, dailySeries, formatDate, wellnessScore, weeklySummary, type Insight } from '@healthx/shared';
-import { useLocalSearchParams } from 'expo-router';
+import { COPY, addDays, computeInsights, dailySeries, formatDate, wellnessScore, weeklySummary, type Insight } from '@healthx/shared';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ChevronRight, Droplets, Footprints, Lightbulb, Moon, Smile, Zap, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Card } from '@/components/Card';
-import { BarChart, LineChart, ProgressRing } from '@/components/Charts';
+import { BarChart, LineChart } from '@/components/Charts';
 import { EmptyState, SkeletonList } from '@/components/Feedback';
 import { InsightCard } from '@/components/InsightCard';
 import { Chip, Segmented } from '@/components/Inputs';
 import { PremiumGate, usePremium } from '@/components/PremiumGate';
 import { ScoreBreakdown } from '@/components/ScoreBreakdown';
+import { ScoreHero, WeekChip } from '@/components/ScoreHero';
 import { Screen } from '@/components/Screen';
+import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
 import { WeeklyReport, type ReportPeriod } from '@/components/WeeklyReport';
-import { GlassStat, HeroPanel, PageIntro, TintIcon, type Tone, ON_DARK } from '@/components/b-kit';
+import { PageIntro, TintIcon, type Tone } from '@/components/b-kit';
 import { useDemoLoading } from '@/lib/hooks';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, palette } from '@/lib/theme';
@@ -61,41 +63,61 @@ export default function InsightsTab() {
   const series = useMemo(() => dailySeries(state, range), [state, range]);
   const week = useMemo(() => weeklySummary(state), [state]);
   const score = useMemo(() => wellnessScore(state), [state]);
+  // Hero card: its own week (default: the 7 days ending today), chosen from the header chip.
+  const [heroEnd, setHeroEnd] = useState(state.today);
+  const [weekOpen, setWeekOpen] = useState(false);
+  const heroScore = useMemo(() => (heroEnd === state.today ? score : wellnessScore(state, heroEnd)), [state, heroEnd, score]);
+  const heroWeek = useMemo(() => (heroEnd === state.today ? week : weeklySummary(state, heroEnd)), [state, heroEnd, week]);
+  const heroDays = useMemo(() => dailySeries(state, 7, heroEnd), [state, heroEnd]);
+  const weekLabel = (end: string) => `${formatDate(addDays(end, -6), 'short')} – ${formatDate(end, 'short')}`;
   const fmt = (v: number | null, d = 1) => (v === null ? '—' : v.toFixed(d));
   // Bars are narrow: full labels for a week, day numbers for two weeks, none for a month.
   const barLabel = (date: string, label: string) => (range === 7 ? label : range === 14 ? String(Number(date.slice(8))) : '');
 
   return (
     <Screen tabBarSpace>
-      <PageIntro eyebrow="Observed patterns" title="Insights" subtitle="Patterns from what you log — never a diagnosis." />
+      <PageIntro eyebrow="Observed patterns" title="Insights" subtitle="Patterns from what you log — never a diagnosis." right={<WeekChip label={weekLabel(heroEnd)} onPress={() => setWeekOpen(true)} />} />
 
-      <HeroPanel onPress={() => setTab('score')} accessibilityLabel={`Wellness score ${score.score ?? 'not available'}. Open score breakdown`}>
-        <View style={styles.heroTop}>
-          <ProgressRing value={(score.score ?? 0) / 100} size={92} stroke={9} color={palette.butter[400]} track="rgba(255,255,255,0.16)">
-            <AppText style={styles.score}>{score.score ?? '—'}</AppText>
-            <AppText variant="caption" color={ON_DARK.soft}>
-              /100
-            </AppText>
-          </ProgressRing>
-          <View style={{ flex: 1 }}>
-            <AppText variant="overline" color={ON_DARK.soft}>
-              {formatDate(week.start, 'short')} – {formatDate(week.end, 'short')}
-            </AppText>
-            <AppText variant="h2" color="#fff" style={{ marginTop: 2 }}>
-              Wellness Score
-            </AppText>
-            <AppText variant="caption" color={ON_DARK.text} style={{ marginTop: 4 }}>
-              Engagement metric, not a medical score
-            </AppText>
-          </View>
-          <ChevronRight size={18} color={ON_DARK.text} />
+      <ScoreHero
+        score={heroScore.score}
+        range={weekLabel(heroEnd)}
+        onPress={() => setTab('score')}
+        accessibilityLabel={`Wellness score ${heroScore.score ?? 'not available'}. Open score breakdown`}
+        stats={[
+          { key: 'checkins', label: 'Check-ins', value: `${heroWeek.checkIns}/7`, week: heroDays.map((d) => (d.mood !== null ? 1 : null)), onPress: () => router.push('/check-in') },
+          { key: 'sleep', label: 'Avg sleep', value: heroWeek.avgSleep !== null ? `${heroWeek.avgSleep} h` : '—', week: heroDays.map((d) => (d.sleep ? d.sleep / state.sleepTargetHours : null)), onPress: () => router.push('/sleep') },
+          { key: 'steps', label: 'Steps', value: heroWeek.steps >= 10000 ? `${Math.round(heroWeek.steps / 1000)}k` : heroWeek.steps.toLocaleString(), week: heroDays.map((d) => (d.steps ? d.steps / state.stepTarget : null)), onPress: () => router.push('/steps') },
+        ]}
+      />
+
+      {/* week chooser for the hero only (the tabs below keep using the current period) */}
+      <Sheet visible={weekOpen} onClose={() => setWeekOpen(false)} title="Choose a week" subtitle="The Wellness Score card shows the week you pick.">
+        <View style={{ gap: 8 }}>
+          {[0, 1, 2, 3].map((n) => {
+            const end = addDays(state.today, -7 * n);
+            const on = end === heroEnd;
+            return (
+              <Pressable
+                key={end}
+                accessibilityRole="radio"
+                aria-selected={on}
+                accessibilityLabel={`${weekLabel(end)}${n === 0 ? ', this week' : ''}`}
+                onPress={() => {
+                  setHeroEnd(end);
+                  setWeekOpen(false);
+                }}
+                style={({ pressed }) => [styles.weekRow, on && styles.weekRowOn, pressed && { opacity: 0.85 }]}>
+                <AppText variant="bodyMedium" style={{ flex: 1 }}>
+                  {weekLabel(end)}
+                </AppText>
+                <AppText variant="caption" muted>
+                  {n === 0 ? 'This week' : n === 1 ? 'Last week' : `${n} weeks ago`}
+                </AppText>
+              </Pressable>
+            );
+          })}
         </View>
-        <View style={styles.glassRow}>
-          <GlassStat label="Check-ins" value={`${week.checkIns}/7`} />
-          <GlassStat label="Avg sleep" value={week.avgSleep !== null ? `${week.avgSleep} h` : '—'} />
-          <GlassStat label="Steps" value={week.steps >= 10000 ? `${Math.round(week.steps / 1000)}k` : week.steps.toLocaleString()} />
-        </View>
-      </HeroPanel>
+      </Sheet>
 
       <Segmented
         value={tab}
@@ -219,9 +241,8 @@ function TrendCard({ icon, tone, eyebrow, title, stat, children }: { icon: Lucid
 }
 
 const styles = StyleSheet.create({
-  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  score: { fontFamily: font.displayBold, fontSize: 30, lineHeight: 34, color: '#fff' },
-  glassRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  weekRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 14, borderRadius: 16, borderWidth: 1.5, borderColor: palette.ink[100], backgroundColor: colors.surface },
+  weekRowOn: { borderColor: palette.green[600], backgroundColor: palette.green[50] },
   reportLink: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 22, backgroundColor: palette.butter[50], borderWidth: 1, borderColor: palette.butter[100] },
   trendHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   statPill: { backgroundColor: palette.green[50], borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },

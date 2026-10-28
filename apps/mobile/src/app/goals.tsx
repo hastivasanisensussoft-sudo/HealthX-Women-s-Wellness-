@@ -2,8 +2,11 @@
 import { goalProgress, type WellnessGoal } from '@healthx/shared';
 import { router } from 'expo-router';
 import { Award, Check, ChevronRight, Pause, Play, Plus, Target, Trash2 } from 'lucide-react-native';
-import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useId, useState } from 'react';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -17,7 +20,7 @@ import { AppText } from '@/components/Text';
 import { GroupHeader, PageIntro, TintIcon, type Tone } from '@/components/b-kit';
 import { KeyIcon } from '@/lib/icons';
 import { useStore } from '@/lib/store';
-import { brandText, colors, font, palette, shadow } from '@/lib/theme';
+import { colors, font, palette, shadow } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 const METRICS: { key: WellnessGoal['metric']; label: string; unit: string; period: WellnessGoal['period']; def: number; step: number; min: number; max: number; icon: string; tone: Tone }[] = [
@@ -41,6 +44,44 @@ const titleFor = (m: WellnessGoal['metric'], t: number) =>
     mindful: `${t} mindful sessions a week`,
   })[m];
 
+const ART = {
+  target: require('../../assets/images/goals/target.png'),
+  plant: require('../../assets/images/goals/plant.png'),
+  sprout: require('../../assets/images/goals/sprout.png'),
+};
+
+/** Average-progress ring: soft track, mint-to-green gradient progress, knob, % with a sprout below. */
+function AvgRing({ value, size }: { value: number; size: number }) {
+  const id = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const c = size / 2;
+  const B = size * 0.11;
+  const R = c - B / 2 - 2;
+  const frac = Math.max(0, Math.min(1, value));
+  const pt = (deg: number) => ({ x: c + R * Math.cos((deg * Math.PI) / 180), y: c + R * Math.sin((deg * Math.PI) / 180) });
+  const s = pt(-90);
+  const e = pt(-90 + frac * 359.9);
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Defs>
+          <SvgGradient id={id} x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor="#7FE0C4" />
+            <Stop offset="1" stopColor="#2FB463" />
+          </SvgGradient>
+        </Defs>
+        <Circle cx={c} cy={c} r={R} fill="none" stroke="#D9F1E3" strokeWidth={B} />
+        {frac > 0 ? <Path d={`M ${s.x} ${s.y} A ${R} ${R} 0 ${frac > 0.5 ? 1 : 0} 1 ${e.x} ${e.y}`} stroke={`url(#${id})`} strokeWidth={B} strokeLinecap="round" fill="none" /> : null}
+        <Circle cx={c} cy={c} r={R - B / 2 - 2} fill="#FFFFFF" opacity={0.75} />
+        <Circle cx={e.x} cy={e.y} r={B * 0.62} fill={palette.green[700]} />
+      </Svg>
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        <AppText style={styles.sumNum}>{Math.round(frac * 100)}%</AppText>
+        <Image source={ART.sprout} style={{ width: size * 0.22, height: size * 0.21 }} contentFit="contain" accessible={false} />
+      </View>
+    </View>
+  );
+}
+
 export default function Goals() {
   const { state, dispatch } = useStore();
   const toast = useToast();
@@ -52,6 +93,8 @@ export default function Goals() {
   const completed = state.goals.filter((g) => g.status === 'completed');
   const meta = (m: WellnessGoal['metric']) => METRICS.find((x) => x.key === m);
   const avg = active.length ? active.reduce((a, g) => a + goalProgress(state, g).pct, 0) / active.length : 0;
+  const { width: winW } = useWindowDimensions();
+  const artW = Math.round(Math.min(240, Math.max(150, winW * 0.42)));
   const onTrack = active.filter((g) => goalProgress(state, g).pct >= 1).length;
 
   const create = () => {
@@ -70,22 +113,30 @@ export default function Goals() {
 
   return (
     <Screen back>
-      <PageIntro eyebrow="Progress updates automatically" title="Goals" subtitle="Everyday habits you’re working towards." />
+      {/* header with the target illustration on the right */}
+      <View>
+        <Image source={ART.target} style={[styles.headerArt, { width: artW, height: artW * 0.8 }]} contentFit="contain" accessible={false} />
+        <PageIntro eyebrow="Progress updates automatically" title="Goals" subtitle="Everyday habits you’re working towards." style={{ paddingRight: artW * 0.62, minHeight: artW * 0.86 }} />
+      </View>
 
-      <View style={styles.summary}>
-        <ProgressRing value={avg} size={86} stroke={9} color={palette.green[700]} track={palette.green[200]}>
-          <AppText style={styles.sumNum}>{Math.round(avg * 100)}%</AppText>
-        </ProgressRing>
-        <View style={{ flex: 1 }}>
-          <AppText variant="overline" color={palette.green[700]}>
-            Average progress
-          </AppText>
-          <AppText variant="h2">
-            {active.length} active · {completed.length} done
-          </AppText>
-          <AppText variant="caption" color={brandText}>
-            {onTrack ? `${onTrack} goal${onTrack === 1 ? '' : 's'} already met this period` : 'Every bit of progress counts'}
-          </AppText>
+      <View style={styles.summary} accessible accessibilityLabel={`Average progress ${Math.round(avg * 100)}%. ${active.length} active, ${completed.length} done`}>
+        <LinearGradient colors={['#F4FBF7', '#E8F7EE']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <View style={styles.summaryWave} pointerEvents="none">
+          <Svg width="100%" height="100%" viewBox="0 0 400 80" preserveAspectRatio="none">
+            <Path d="M0 60 C60 44 120 52 180 46 C250 38 300 20 400 26 L400 80 L0 80 Z" fill="#D6F0DF" opacity={0.75} />
+            <Path d="M0 72 C80 60 160 74 240 62 C300 52 350 50 400 56 L400 80 L0 80 Z" fill="#C3E9D1" opacity={0.6} />
+          </Svg>
+        </View>
+        <Image source={ART.plant} style={styles.summaryPlant} contentFit="contain" accessible={false} />
+        <AvgRing value={avg} size={94} />
+        <View style={{ flex: 1, paddingRight: 34 }}>
+          <AppText style={styles.sumEyebrow}>AVERAGE PROGRESS</AppText>
+          <View style={styles.sumRow}>
+            <AppText style={styles.sumTitle}>{active.length} active</AppText>
+            <View style={styles.sumDot} />
+            <AppText style={styles.sumTitle}>{completed.length} done</AppText>
+          </View>
+          <AppText style={styles.sumSub}>{onTrack ? `${onTrack} goal${onTrack === 1 ? '' : 's'} already met this period` : 'Every bit of progress counts'}</AppText>
         </View>
       </View>
 
@@ -203,8 +254,16 @@ export default function Goals() {
 }
 
 const styles = StyleSheet.create({
-  summary: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 18, borderRadius: 28, backgroundColor: palette.green[50], borderWidth: 1, borderColor: palette.green[100] },
-  sumNum: { fontFamily: font.displayBold, fontSize: 20, lineHeight: 24, color: brandText },
+  headerArt: { position: 'absolute', right: -12, top: 12 },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 18, paddingVertical: 20, borderRadius: 28, overflow: 'hidden', borderWidth: 1.5, borderColor: '#FFFFFF', shadowColor: '#0D4336', shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  summaryWave: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%' },
+  summaryPlant: { position: 'absolute', right: 2, bottom: -4, width: 66, height: 122 },
+  sumNum: { fontFamily: font.displayBold, fontSize: 22, lineHeight: 26, color: '#13261E' },
+  sumEyebrow: { fontFamily: font.monoMedium, fontSize: 10.5, letterSpacing: 1.6, color: palette.green[700] },
+  sumRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' },
+  sumTitle: { fontFamily: font.displayBold, fontSize: 21, lineHeight: 26, color: '#13261E' },
+  sumDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#3DBE7B' },
+  sumSub: { fontFamily: font.regular, fontSize: 13, lineHeight: 18, color: palette.ink[600], marginTop: 3 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12 },
   goal: { width: '48.3%', alignItems: 'center', padding: 14, borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: palette.ink[100], ...shadow.card },
   badges: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18, padding: 14, borderRadius: 22, backgroundColor: palette.butter[50], borderWidth: 1, borderColor: palette.butter[100] },

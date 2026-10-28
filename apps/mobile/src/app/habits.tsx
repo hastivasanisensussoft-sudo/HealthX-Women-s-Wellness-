@@ -1,8 +1,11 @@
 /** Habits, goals & badges (SRS §33, §45, §52, §53, §65). Phase 2 modules — forest progress hero, 4-week consistency grid, per-habit streak strips, goal rings and a badge gallery. */
 import { formatDate, goalProgress, habitDone, habitsDueOn, lastNDays, streak, type Habit, type WellnessGoal } from '@healthx/shared';
-import { Check, Flame, Lock, Plus, Repeat, Target, Trash2 } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Award, Check, ChevronLeft, ChevronRight, Flame, Leaf, Lock, Plus, Repeat, Target, Trash2 } from 'lucide-react-native';
+import { useId, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 
 import { PhaseBadge, Pill } from '@/components/Badges';
 import { Button } from '@/components/Button';
@@ -13,7 +16,7 @@ import { Chip, Segmented, Stepper, TextField } from '@/components/Inputs';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { AppText } from '@/components/Text';
-import { GroupHeader, HeroPanel, PageIntro, ON_DARK } from '@/components/b-kit';
+import { GroupHeader, Leaf as LeafShape, PageIntro } from '@/components/b-kit';
 import { KeyIcon } from '@/lib/icons';
 import { useStore } from '@/lib/store';
 import { brandText, colors, font, palette, shadow } from '@/lib/theme';
@@ -27,7 +30,46 @@ const METRICS: { key: WellnessGoal['metric']; label: string; unit: string; perio
   { key: 'checkins', label: 'Check-ins', unit: 'check-ins', period: 'weekly', def: 5, step: 1 },
   { key: 'mindful', label: 'Mindful minutes', unit: 'sessions', period: 'weekly', def: 4, step: 1 },
 ];
-const GRID_TONES = [palette.ink[100], palette.green[200], palette.green[400], palette.green[600]];
+const TARGET = require('../../assets/images/habits/target.png');
+/** Calendar cell colour by level: 0 no data / not done, 1 less, 2 medium, 3 more, 4 all done. */
+const LEVEL_BG = ['rgba(255,255,255,0.09)', '#C9F1DD', '#6CCB97', '#1E8A5A', '#0A5A3F'];
+const LEGEND: [string, number][] = [['Not done', 0], ['Less', 1], ['Medium', 2], ['More', 3], ['All done', 4]];
+const levelOf = (ratio: number) => (ratio <= 0 ? 0 : ratio >= 1 ? 4 : ratio < 0.4 ? 1 : ratio < 0.75 ? 2 : 3);
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+/** Glassy ring for the habits hero: done / total with "Done" below. */
+function HabitRing({ done, total, size }: { done: number; total: number; size: number }) {
+  const id = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const c = size / 2;
+  const B = size * 0.11;
+  const R = c - B / 2 - size * 0.04;
+  const frac = total ? Math.max(0, Math.min(1, done / total)) : 0;
+  const pt = (deg: number) => ({ x: c + R * Math.cos((deg * Math.PI) / 180), y: c + R * Math.sin((deg * Math.PI) / 180) });
+  const s = pt(-90);
+  const e = pt(-90 + frac * 359.9);
+  return (
+    <View style={{ width: size, height: size }} accessible accessibilityLabel={`${done} of ${total} habits done`}>
+      <Svg width={size} height={size}>
+        <Defs>
+          <SvgGradient id={id} x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor="#CFF3DD" />
+            <Stop offset="1" stopColor="#4FBF86" />
+          </SvgGradient>
+        </Defs>
+        <Circle cx={c} cy={c} r={c - 1} fill="#FFFFFF" opacity={0.06} stroke="#FFFFFF" strokeOpacity={0.22} strokeWidth={1.5} />
+        <Circle cx={c} cy={c} r={R} fill="none" stroke="#4FBF86" strokeOpacity={0.35} strokeWidth={B} />
+        {frac > 0 ? <Path d={`M ${s.x} ${s.y} A ${R} ${R} 0 ${frac > 0.5 ? 1 : 0} 1 ${e.x} ${e.y}`} stroke={`url(#${id})`} strokeWidth={B} strokeLinecap="round" fill="none" /> : null}
+        <Circle cx={c} cy={c} r={R - B / 2 - 1} fill="#073F31" />
+      </Svg>
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+        <AppText style={styles.heroNum}>
+          {done}/{total}
+        </AppText>
+        <AppText style={styles.heroDone}>Done</AppText>
+      </View>
+    </View>
+  );
+}
 
 export default function Habits() {
   const { state, dispatch } = useStore();
@@ -45,16 +87,29 @@ export default function Habits() {
   const doneCount = due.filter((h) => habitDone(state, h.id, state.today)).length;
 
   const habitStreak = useMemo(() => Object.fromEntries(state.habits.map((h) => [h.id, streak(state, (d) => habitDone(state, h.id, d))])), [state]);
-  // 4-week consistency grid: share of the habits due each day that were done.
-  const grid = useMemo(
-    () =>
-      lastNDays(state.today, 28).map((d) => {
-        const list = habitsDueOn(state, d);
-        const n = list.filter((h) => habitDone(state, h.id, d)).length;
-        return { d, ratio: list.length ? n / list.length : -1 };
-      }),
-    [state],
-  );
+  // Month calendar (Sun-first, padded with the neighbouring months): share of the habits due each day that were done.
+  const [monthOffset, setMonthOffset] = useState(0);
+  const canPrev = monthOffset > -11;
+  const cal = useMemo(() => {
+    const [y, m] = state.today.split('-').map(Number);
+    const first = Date.UTC(y, m - 1 + monthOffset, 1);
+    const firstDate = new Date(first);
+    const month = firstDate.getUTCMonth();
+    const start = first - firstDate.getUTCDay() * 86400000;
+    const lastDay = new Date(Date.UTC(firstDate.getUTCFullYear(), month + 1, 0)).getUTCDate();
+    const weeks = Math.ceil((firstDate.getUTCDay() + lastDay) / 7);
+    const cells = Array.from({ length: weeks * 7 }, (_, i) => {
+      const d = iso(start + i * 86400000);
+      const inMonth = new Date(start + i * 86400000).getUTCMonth() === month;
+      const list = d <= state.today ? habitsDueOn(state, d) : [];
+      const done = list.filter((h) => habitDone(state, h.id, d)).length;
+      return { d, inMonth, level: list.length ? levelOf(done / list.length) : 0 };
+    });
+    const label = firstDate.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    return { cells, label };
+  }, [state, monthOffset]);
+  const { width: winW } = useWindowDimensions();
+  const artW = Math.round(Math.min(250, Math.max(160, winW * 0.42)));
   const bestStreak = Math.max(0, ...Object.values(habitStreak).map(Number));
 
   const addGoal = () => {
@@ -82,60 +137,83 @@ export default function Habits() {
 
   return (
     <Screen back right={<PhaseBadge phase={2} />}>
-      <PageIntro eyebrow="Small steps, every day" title="Habits & goals" />
-      <Segmented value={tab} onChange={setTab} options={[{ key: 'habits', label: 'Habits' }, { key: 'goals', label: 'Goals' }, { key: 'badges', label: 'Badges' }]} />
+      {/* header with the target illustration */}
+      <View>
+        <Image source={TARGET} style={[styles.headerArt, { width: artW, height: artW * 0.55 }]} contentFit="contain" accessible={false} />
+        <PageIntro eyebrow="Small steps, every day" title="Habits & goals" style={{ paddingRight: artW * 0.62, minHeight: artW * 0.42 }} />
+      </View>
+      <Segmented
+        solid
+        value={tab}
+        onChange={setTab}
+        options={[
+          { key: 'habits', label: 'Habits', icon: Leaf },
+          { key: 'goals', label: 'Goals', icon: Target },
+          { key: 'badges', label: 'Badges', icon: Award },
+        ]}
+      />
 
       {tab === 'habits' ? (
         <>
-          <HeroPanel style={{ marginTop: 16 }}>
+          <View style={styles.hero}>
+            <LinearGradient colors={[palette.green[800], palette.green[900], palette.green[950]]} locations={[0, 0.6, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+            <LeafShape size={150} color="rgba(147,207,184,0.10)" vein={false} rotate={20} style={{ position: 'absolute', top: -40, right: -40 }} />
+            <LeafShape size={110} color="rgba(147,207,184,0.08)" vein={false} rotate={200} style={{ position: 'absolute', bottom: -40, right: -30 }} />
             <View style={styles.heroTop}>
-              <ProgressRing value={due.length ? doneCount / due.length : 0} size={84} stroke={9} color={palette.butter[400]} track="rgba(255,255,255,0.14)">
-                <AppText style={styles.heroNum}>
-                  {doneCount}/{due.length}
-                </AppText>
-              </ProgressRing>
+              <HabitRing done={doneCount} total={due.length} size={108} />
               <View style={{ flex: 1 }}>
-                <AppText variant="overline" color={ON_DARK.soft}>
-                  Today
-                </AppText>
-                <AppText variant="title" color="#fff">
+                <AppText style={styles.heroEyebrow}>TODAY</AppText>
+                <AppText style={styles.heroTitle}>
                   {doneCount} of {due.length} habits done
                 </AppText>
                 <View style={styles.flame}>
-                  <Flame size={13} color={palette.peach[400]} />
-                  <AppText variant="caption" color={ON_DARK.text}>
+                  <Flame size={16} color="#F59A3C" />
+                  <AppText style={styles.flameText}>
                     Best current streak: {bestStreak} day{bestStreak === 1 ? '' : 's'}
                   </AppText>
                 </View>
               </View>
             </View>
-            <AppText variant="overline" color={ON_DARK.soft} style={{ marginTop: 16, marginBottom: 8 }}>
-              Last 4 weeks
-            </AppText>
-            <View style={styles.grid} accessible accessibilityLabel={`Consistency over the last 4 weeks: all habits done on ${grid.filter((g) => g.ratio === 1).length} of 28 days`}>
-              {grid.map((g) => (
-                <View
-                  key={g.d}
-                  style={[
-                    styles.gridCell,
-                    { backgroundColor: g.ratio < 0 ? 'rgba(255,255,255,0.06)' : g.ratio === 0 ? 'rgba(255,255,255,0.12)' : GRID_TONES[Math.min(3, Math.ceil(g.ratio * 3))] },
-                    g.d === state.today && styles.gridToday,
-                  ]}
-                />
+            <View style={styles.divider} />
+            <View style={styles.calHead}>
+              <AppText style={styles.heroEyebrow}>CONSISTENCY</AppText>
+              <View style={styles.monthNav}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Previous month" disabled={!canPrev} onPress={() => setMonthOffset((m) => m - 1)} style={({ pressed }) => [styles.navBtn, !canPrev && { opacity: 0.35 }, pressed && { opacity: 0.7 }]}>
+                  <ChevronLeft size={16} color="#FFFFFF" />
+                </Pressable>
+                <AppText style={styles.monthLabel}>{cal.label}</AppText>
+                <Pressable accessibilityRole="button" accessibilityLabel="Next month" disabled={monthOffset >= 0} onPress={() => setMonthOffset((m) => m + 1)} style={({ pressed }) => [styles.navBtn, monthOffset >= 0 && { opacity: 0.35 }, pressed && { opacity: 0.7 }]}>
+                  <ChevronRight size={16} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            </View>
+            <View style={styles.weekRow}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                <AppText key={d} style={styles.weekDay}>
+                  {d}
+                </AppText>
+              ))}
+            </View>
+            <View style={styles.cal} accessible accessibilityLabel={`${cal.label}: all habits done on ${cal.cells.filter((c) => c.inMonth && c.level === 4).length} days`}>
+              {cal.cells.map((c) => (
+                <View key={c.d} style={styles.calSlot}>
+                  <View style={[styles.calCell, { backgroundColor: LEVEL_BG[c.level] }, c.level === 4 && styles.calAll, !c.inMonth && { opacity: 0.4 }, c.d === state.today && styles.calToday]}>
+                    <AppText style={[styles.calNum, (c.level === 1 || c.level === 2) && { color: palette.green[900] }]}>{Number(c.d.slice(8))}</AppText>
+                  </View>
+                </View>
               ))}
             </View>
             <View style={styles.legend}>
-              <AppText variant="caption" color={ON_DARK.soft}>
-                Less
-              </AppText>
-              {GRID_TONES.slice(1).map((c) => (
-                <View key={c} style={[styles.legendCell, { backgroundColor: c }]} />
+              {LEGEND.map(([label, level]) => (
+                <View key={label} style={styles.legendItem}>
+                  <View style={[styles.legendCell, winW < 380 && styles.legendCellSm, { backgroundColor: LEVEL_BG[level] }, level === 4 && styles.calAll]} />
+                  <AppText style={[styles.legendText, winW < 380 && { fontSize: 10 }]} numberOfLines={1}>
+                    {label}
+                  </AppText>
+                </View>
               ))}
-              <AppText variant="caption" color={ON_DARK.soft}>
-                All done
-              </AppText>
             </View>
-          </HeroPanel>
+          </View>
 
           <GroupHeader eyebrow={`${state.habits.length} habits`} title="Your habits" action="Add habit" onAction={() => setHabitOpen(true)} />
           {state.habits.length === 0 ? (
@@ -320,14 +398,33 @@ export default function Habits() {
 }
 
 const styles = StyleSheet.create({
+  headerArt: { position: 'absolute', right: -14, top: -24 },
+  hero: { marginTop: 16, borderRadius: 28, padding: 16, paddingVertical: 18, overflow: 'hidden', shadowColor: '#0D4336', shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 },
   heroTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  heroNum: { fontFamily: font.displayBold, fontSize: 22, lineHeight: 26, color: '#fff' },
-  flame: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  gridCell: { width: '12.4%', aspectRatio: 1.6, borderRadius: 6 },
-  gridToday: { borderWidth: 2, borderColor: palette.butter[400] },
-  legend: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 10, alignSelf: 'flex-end' },
-  legendCell: { width: 14, height: 10, borderRadius: 3 },
+  heroNum: { fontFamily: font.displayBold, fontSize: 26, lineHeight: 30, color: '#fff' },
+  heroDone: { fontFamily: font.medium, fontSize: 12.5, lineHeight: 16, color: 'rgba(255,255,255,0.85)' },
+  heroEyebrow: { fontFamily: font.monoMedium, fontSize: 11, letterSpacing: 2, color: 'rgba(255,255,255,0.78)' },
+  heroTitle: { fontFamily: font.displayBold, fontSize: 21, lineHeight: 26, letterSpacing: -0.3, color: '#FFFFFF', marginTop: 4 },
+  flame: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  flameText: { fontFamily: font.regular, fontSize: 13.5, color: 'rgba(255,255,255,0.88)', flexShrink: 1 },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.14)', marginVertical: 16 },
+  calHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  monthNav: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  navBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  monthLabel: { fontFamily: font.semibold, fontSize: 14, color: '#FFFFFF', minWidth: 98, textAlign: 'center' },
+  weekRow: { flexDirection: 'row', marginTop: 12, marginBottom: 4 },
+  weekDay: { width: `${100 / 7}%`, textAlign: 'center', fontFamily: font.medium, fontSize: 12, color: 'rgba(255,255,255,0.82)' },
+  cal: { flexDirection: 'row', flexWrap: 'wrap' },
+  calSlot: { width: `${100 / 7}%`, padding: 2.5 },
+  calCell: { height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  calAll: { borderColor: 'rgba(143,221,178,0.45)' },
+  calToday: { borderWidth: 2, borderColor: '#F6C844' },
+  calNum: { fontFamily: font.semibold, fontSize: 13, color: '#FFFFFF' },
+  legend: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginTop: 14 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
+  legendCell: { width: 15, height: 15, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  legendCellSm: { width: 12, height: 12, borderRadius: 3 },
+  legendText: { fontFamily: font.regular, fontSize: 11, color: 'rgba(255,255,255,0.85)' },
   habit: { marginBottom: 12, padding: 16, borderRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: palette.ink[100], ...shadow.card },
   habitTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   check: { width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: palette.green[200], alignItems: 'center', justifyContent: 'center', backgroundColor: palette.green[50] },

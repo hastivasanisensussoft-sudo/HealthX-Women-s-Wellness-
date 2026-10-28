@@ -1,7 +1,7 @@
 /** Sleep (SRS §30): indigo night hero, bedtime / wake / quality / waking log, 7-night chart and a wind-down video. Full module is Phase 2. */
 import { addDays, dailySeries, formatClock, formatDate, sleepDuration, sleepOn, type SleepLog } from '@healthx/shared';
 import { router } from 'expo-router';
-import { BedDouble, ChevronRight, Moon, MoonStar, Star, Sunrise, Timer } from 'lucide-react-native';
+import { BedDouble, ChevronRight, Moon, Star, Sunrise, Timer } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -14,9 +14,10 @@ import { Stepper } from '@/components/Inputs';
 import { Photo } from '@/components/Photo';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
+import { SleepHero } from '@/components/SleepHero';
 import { AppText } from '@/components/Text';
 import { VideoCard } from '@/components/Video';
-import { GlassStat, GroupHeader, HeroPanel, PageIntro, TintIcon, ON_DARK } from '@/components/b-kit';
+import { GlassStat, GroupHeader, PageIntro, TintIcon, ON_DARK } from '@/components/b-kit';
 import { useStore } from '@/lib/store';
 import { colors, font, palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
@@ -28,13 +29,6 @@ const GOAL_MIN = 5;
 const GOAL_MAX = 12;
 const toGoal = (h: number) => Math.min(GOAL_MAX, Math.max(GOAL_MIN, Math.round(h * 2) / 2));
 const fmtGoal = (h: number) => `${h} h`;
-const STARS: [number, number, number][] = [
-  [18, 22, 3],
-  [62, 14, 2],
-  [86, 40, 2.5],
-  [40, 60, 2],
-  [92, 72, 3],
-];
 
 export default function Sleep() {
   const { state, dispatch } = useStore();
@@ -72,45 +66,30 @@ export default function Sleep() {
       <PageIntro eyebrow="Rest & recovery" title="Sleep" subtitle="Log your night in a few taps and spot gentle patterns." />
 
       {/* Night hero */}
-      <HeroPanel tone="night" leaves={false}>
-        {STARS.map(([x, y, r]) => (
-          <View key={`${x}-${y}`} style={[styles.star, { left: `${x}%`, top: `${y}%`, width: r * 2, height: r * 2, borderRadius: r }]} />
-        ))}
-        <View style={styles.moonGlow} />
-        <View style={styles.nightTop}>
-          <View style={styles.moon}>
-            <MoonStar size={30} color={palette.butter[400]} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <AppText variant="overline" color={ON_DARK.soft}>
-              Last night
-            </AppText>
-            {last ? (
-              <>
-                <AppText style={styles.big}>
-                  {Math.floor(last.durationMin / 60)}h {last.durationMin % 60}m
-                </AppText>
-                <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }} accessible accessibilityLabel={`Quality ${last.quality} of 5`}>
-                  {[1, 2, 3, 4, 5].map((q) => (
-                    <Star key={q} size={14} color={palette.butter[400]} fill={q <= last.quality ? palette.butter[400] : 'transparent'} />
-                  ))}
-                </View>
-              </>
-            ) : (
-              <AppText variant="h2" color="#fff" style={{ marginTop: 2 }}>
-                Not logged yet
-              </AppText>
-            )}
-          </View>
-        </View>
+      <SleepHero
+        logged={!!last}
+        below={
+          last ? (
+            <View style={styles.glassRow}>
+              <GlassStat label="Bedtime" value={formatClock(last.bedtime)} icon={<BedDouble size={16} color={ON_DARK.soft} />} />
+              <GlassStat label="Woke up" value={formatClock(last.wake)} icon={<Sunrise size={16} color={palette.peach[400]} />} />
+              <GlassStat label="Waking" value={`${last.wakings}×`} icon={<Moon size={16} color={ON_DARK.soft} />} />
+            </View>
+          ) : null
+        }>
         {last ? (
-          <View style={styles.glassRow}>
-            <GlassStat label="Bedtime" value={formatClock(last.bedtime)} icon={<BedDouble size={16} color={ON_DARK.soft} />} />
-            <GlassStat label="Woke up" value={formatClock(last.wake)} icon={<Sunrise size={16} color={palette.peach[400]} />} />
-            <GlassStat label="Waking" value={`${last.wakings}×`} icon={<Moon size={16} color={ON_DARK.soft} />} />
-          </View>
-        ) : null}
-      </HeroPanel>
+          <>
+            <AppText style={styles.big}>
+              {Math.floor(last.durationMin / 60)}h {last.durationMin % 60}m
+            </AppText>
+            <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }} accessible accessibilityLabel={`Quality ${last.quality} of 5`}>
+              {[1, 2, 3, 4, 5].map((q) => (
+                <Star key={q} size={14} color={palette.butter[400]} fill={q <= last.quality ? palette.butter[400] : 'transparent'} />
+              ))}
+            </View>
+          </>
+        ) : undefined}
+      </SleepHero>
 
       {/* Log */}
       <GroupHeader eyebrow="Log" title="Log last night" />
@@ -219,10 +198,6 @@ export default function Sleep() {
 }
 
 const styles = StyleSheet.create({
-  star: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.75)' },
-  moonGlow: { position: 'absolute', top: -60, right: -50, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(250,215,114,0.10)' },
-  nightTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  moon: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   big: { fontFamily: font.displayBold, fontSize: 36, lineHeight: 42, color: '#fff', letterSpacing: -0.8 },
   glassRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

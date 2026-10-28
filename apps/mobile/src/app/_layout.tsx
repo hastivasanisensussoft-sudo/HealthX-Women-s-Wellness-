@@ -21,6 +21,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StoreProvider } from '@/lib/store';
 import { colors, isDark } from '@/lib/theme';
 import { ToastProvider } from '@/lib/toast';
+import { installHorizontalWheel } from '@/lib/webWheel';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -44,6 +45,9 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded || error) SplashScreen.hideAsync().catch(() => undefined);
   }, [loaded, error]);
+
+  // web: mouse wheel scrolls horizontal lists (no-op on iOS/Android)
+  useEffect(() => installHorizontalWheel(), []);
 
   if (!loaded && !error) return null;
 

@@ -1,22 +1,23 @@
 /** Steps (SRS §26 activity, mockup M24): forest ring hero, glass stats, this week, manual entry and a walking video; sync is Phase 2. */
 import { activeMinOn, dailySeries, estimateDistanceKm, stepsOn } from '@healthx/shared';
 import { router } from 'expo-router';
-import { ChevronRight, Clock, Footprints, HeartPulse, MapPin, Plus, TrendingUp } from 'lucide-react-native';
+import { ChevronRight, HeartPulse, Plus } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { BackendNote, PhaseBadge } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { BarChart, ProgressRing } from '@/components/Charts';
+import { BarChart } from '@/components/Charts';
 import { TextField } from '@/components/Inputs';
 import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
+import { StepsHero } from '@/components/StepsHero';
 import { AppText } from '@/components/Text';
 import { VideoCard } from '@/components/Video';
-import { GlassStat, GroupHeader, HeroPanel, PageIntro, TintIcon, ON_DARK } from '@/components/b-kit';
+import { GroupHeader, PageIntro, TintIcon } from '@/components/b-kit';
 import { useStore } from '@/lib/store';
-import { font, palette } from '@/lib/theme';
+import { palette } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 
 
@@ -29,10 +30,10 @@ export default function Steps() {
   const logged = week.filter((d) => d.steps > 0);
   const weekAvg = logged.length ? Math.round(logged.reduce((a, d) => a + d.steps, 0) / logged.length) : 0;
   const goalDays = week.filter((d) => d.steps >= state.stepTarget).length;
+  const last5 = week.slice(-5);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(String(steps || ''));
   const [error, setError] = useState<string | null>(null);
-  const pct = steps / state.stepTarget;
 
   const save = () => {
     const n = Number(input);
@@ -48,30 +49,16 @@ export default function Steps() {
     <Screen back>
       <PageIntro eyebrow="Activity · today" title="Steps" subtitle="Every step counts — any pace that feels good." />
 
-      <HeroPanel>
-        <View style={{ alignItems: 'center' }}>
-          <ProgressRing value={pct} size={196} stroke={16} color={palette.butter[400]} track="rgba(255,255,255,0.14)">
-            <Footprints size={20} color={ON_DARK.soft} />
-            <AppText style={styles.big}>{steps.toLocaleString()}</AppText>
-            <AppText variant="small" color={ON_DARK.text}>
-              of {state.stepTarget.toLocaleString()} steps
-            </AppText>
-          </ProgressRing>
-          <View style={styles.pctPill}>
-            <AppText variant="caption" color={palette.green[950]} style={{ fontFamily: font.bold }}>
-              {pct >= 1 ? 'Goal reached today' : `${Math.round(pct * 100)}% of today’s goal`}
-            </AppText>
-          </View>
-        </View>
-        <View style={styles.glassRow}>
-          <GlassStat label="Distance*" value={`${estimateDistanceKm(steps).toFixed(1)} km`} icon={<MapPin size={15} color={ON_DARK.soft} />} />
-          <GlassStat label="Active" value={`${active} min`} icon={<Clock size={15} color={ON_DARK.soft} />} />
-          <GlassStat label="Week avg" value={weekAvg.toLocaleString()} icon={<TrendingUp size={15} color={ON_DARK.soft} />} />
-        </View>
-      </HeroPanel>
-      <AppText variant="caption" muted style={{ marginTop: 8 }}>
-        * Distance is an estimate based on an average stride.
-      </AppText>
+      <StepsHero
+        steps={steps}
+        target={state.stepTarget}
+        note="* Distance is an estimate based on an average stride."
+        stats={[
+          { icon: 'distance', tone: 'mint', label: 'Distance*', value: `${estimateDistanceKm(steps).toFixed(1)} km`, days: last5.map((d) => (d.steps ? d.steps / state.stepTarget : null)) },
+          { icon: 'active', tone: 'sky', label: 'Active', value: `${active} min`, days: last5.map((d) => (d.activeMin ? d.activeMin / 30 : null)) },
+          { icon: 'trend', tone: 'lavender', label: 'Week avg', value: weekAvg.toLocaleString(), days: last5.map((d) => (d.steps ? d.steps / Math.max(weekAvg, 1) / 1.5 : null)) },
+        ]}
+      />
 
       <Button label="Add steps manually" icon={Plus} full style={{ marginTop: 16 }} onPress={() => setOpen(true)} />
 
@@ -113,9 +100,6 @@ export default function Steps() {
 }
 
 const styles = StyleSheet.create({
-  big: { fontFamily: font.displayBold, fontSize: 40, lineHeight: 46, color: '#fff', letterSpacing: -1, marginTop: 2 },
-  pctPill: { marginTop: 12, backgroundColor: palette.butter[400], borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
-  glassRow: { flexDirection: 'row', gap: 8, marginTop: 18 },
   sync: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, padding: 14, borderRadius: 22, backgroundColor: palette.rose[50], borderWidth: 1, borderColor: palette.rose[100] },
 });
 

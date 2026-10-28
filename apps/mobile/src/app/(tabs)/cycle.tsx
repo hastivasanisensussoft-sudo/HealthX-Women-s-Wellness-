@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Baby, CalendarDays, ChevronRight, Droplet, Flower2, History, Pencil, Plus, Settings2, Smile, Stethoscope } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { ArticleCard } from '@/components/ArticleCard';
 import { Leaf } from '@/components/Art';
@@ -12,7 +12,7 @@ import { Disclaimer, EstimateNote, PhaseBadge } from '@/components/Badges';
 import { Button } from '@/components/Button';
 import { Card, SectionHeader } from '@/components/Card';
 import { Legend } from '@/components/Charts';
-import { CycleRing } from '@/components/cycle/CycleRing';
+import { HERO_COLORS, HeroDial, type HeroPhase } from '@/components/cycle/HeroDial';
 import { MonthCalendar } from '@/components/cycle/Calendar';
 import { EmptyState, SkeletonCard } from '@/components/Feedback';
 import { Photo } from '@/components/Photo';
@@ -27,6 +27,9 @@ import { useStore } from '@/lib/store';
 import { brandText, colors, fertile, font, onDark, palette, shadow } from '@/lib/theme';
 
 const ORDER: CyclePhase[] = ['menstrual', 'follicular', 'ovulatory', 'luteal'];
+/** Hero card: app phase → the card's own arc colour, and the short legend names. */
+const HERO_OF: Record<CyclePhase, HeroPhase> = { menstrual: 'period', follicular: 'follicular', ovulatory: 'fertile', luteal: 'luteal' };
+const LEGEND_NAME: Record<CyclePhase, string> = { menstrual: 'Period', follicular: 'Follicular', ovulatory: 'Ovulation', luteal: 'Luteal' };
 
 export default function CycleTab() {
   const { state } = useStore();
@@ -43,6 +46,11 @@ export default function CycleTab() {
   const paused = state.profile.mode === 'pregnancy' || menopause;
   const pausedWord = menopause ? 'off' : 'paused';
   const basis = estimateBasis(state);
+  // dial ≈ 46% of the card's inner width (screen − 2×20 padding − 2×18 card padding), 148–230 px
+  const { width: winW } = useWindowDimensions();
+  const dial = Math.round(Math.min(230, Math.max(148, (winW - 76) * 0.46)));
+  // phones: legend as a 2×2 grid and compact stat cards; wider screens: one legend row like the design
+  const narrow = winW < 520;
 
   const phaseRanges = useMemo(() => {
     if (!cs.avgCycleLength || !cs.fertileWindow || !cs.currentCycleStart) return null;
@@ -107,48 +115,84 @@ export default function CycleTab() {
           <View style={styles.hero}>
             <LinearGradient colors={[palette.green[700], palette.green[900], palette.green[950]]} locations={[0, 0.6, 1]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
             <Leaf size={150} color={palette.green[300]} rotate={-20} style={{ right: -40, top: -46, opacity: 0.14 }} />
+            <Leaf size={92} color={palette.green[400]} rotate={-150} style={{ left: -26, top: 44, opacity: 0.2 }} />
+            <Leaf size={70} color={palette.green[400]} rotate={30} style={{ left: dial * 0.62, top: -14, opacity: 0.18 }} />
+            <Leaf size={84} color={palette.green[300]} rotate={150} style={{ right: -24, top: 150, opacity: 0.1 }} />
             <View style={styles.heroRow}>
-              <View style={styles.dialWrap}>
-                <CycleRing state={cs} size={150} labels={false}>
-                  <AppText variant="overline" color={palette.ink[500]} style={{ fontSize: 9 }}>
-                    Day
-                  </AppText>
-                  <AppText style={styles.dialNum}>{cs.cycleDay}</AppText>
-                </CycleRing>
-              </View>
+              <HeroDial state={cs} size={dial} />
               <View style={{ flex: 1, gap: 10 }}>
                 <View>
                   <AppText variant="overline" color={onDark.green[200]}>
                     {nextLabel}
                   </AppText>
-                  <AppText style={styles.heroBig}>{nextValue}</AppText>
+                  <AppText style={styles.heroBig} numberOfLines={1} adjustsFontSizeToFit>
+                    {nextValue}
+                  </AppText>
                   {!openPeriod && !paused && cs.nextPeriodStart ? (
                     <AppText variant="caption" color={onDark.green[100]}>
                       around {formatDate(cs.nextPeriodStart, 'short')}*
                     </AppText>
                   ) : null}
                 </View>
-                <View style={styles.phaseChip}>
-                  <View style={[styles.phaseDot, { backgroundColor: cs.phase ? phaseColors[cs.phase].solid : palette.ink[300] }]} />
-                  <AppText variant="caption" color={palette.green[900]} style={{ fontFamily: font.semibold, flexShrink: 1 }} numberOfLines={2}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${paused ? `Phase estimates ${pausedWord}` : phaseText(cs)}. About this phase`}
+                  disabled={paused || !cs.phase}
+                  onPress={() => cs.phase && setPhaseSheet(cs.phase)}
+                  style={({ pressed }) => [styles.phaseChip, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}>
+                  <View style={[styles.phaseDot, { backgroundColor: cs.phase ? HERO_COLORS[HERO_OF[cs.phase]][1] : palette.ink[300] }]} />
+                  <AppText color={palette.green[900]} style={styles.phaseChipText} numberOfLines={3}>
                     {paused ? `Phase estimates ${pausedWord}` : phaseText(cs)}
                   </AppText>
-                </View>
+                  {!paused && cs.phase ? <ChevronRight size={16} color={palette.green[900]} /> : null}
+                </Pressable>
               </View>
             </View>
+            {/* phase legend (this card's colours, estimated day ranges) */}
+            {phaseRanges && !paused ? (
+              <View style={[styles.legend, narrow && styles.legendGrid]} accessibilityRole="summary">
+                {ORDER.map((p, i) => (
+                  <View key={p} style={[styles.legendItem, narrow ? [styles.legendCell, i % 2 === 1 && styles.legendDivider] : [styles.legendFlex, i > 0 && styles.legendDivider]]}>
+                    <View style={[styles.legendDot, { backgroundColor: HERO_COLORS[HERO_OF[p]][1] }]} />
+                    <View style={{ flexShrink: 1 }}>
+                      <AppText style={styles.legendName} numberOfLines={1}>
+                        {LEGEND_NAME[p]}
+                      </AppText>
+                      <AppText style={styles.legendDays} numberOfLines={1}>
+                        {`${phaseRanges[p]}${p === 'menstrual' ? '' : '*'}`}
+                      </AppText>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             <View style={styles.heroStats}>
-              <View style={styles.glass}>
-                <AppText variant="overline" color={onDark.green[200]} style={{ fontSize: 9 }}>
-                  Avg cycle
-                </AppText>
-                <AppText style={styles.glassValue}>{cs.avgCycleLength ? `${cs.avgCycleLength} days*` : '—'}</AppText>
-              </View>
-              <View style={styles.glass}>
-                <AppText variant="overline" color={onDark.green[200]} style={{ fontSize: 9 }}>
-                  Avg period
-                </AppText>
-                <AppText style={styles.glassValue}>{cs.avgPeriodLength ? `${cs.avgPeriodLength} days*` : '—'}</AppText>
-              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Average cycle ${cs.avgCycleLength ? `${cs.avgCycleLength} days, estimate` : 'unknown'}. Open cycle history`} onPress={() => router.push('/cycle-history')} style={({ pressed }) => [styles.glass, narrow && styles.glassSm, pressed && styles.glassPressed]}>
+                <View style={[styles.glassIcon, narrow && styles.glassIconSm]}>
+                  <CalendarDays size={17} color="#fff" />
+                </View>
+                {narrow ? null : <View style={styles.glassRule} />}
+                <View style={{ flex: 1 }}>
+                  <AppText variant="overline" color={onDark.green[200]} style={{ fontSize: 9 }} numberOfLines={1}>
+                    Avg cycle
+                  </AppText>
+                  <AppText style={styles.glassValue} numberOfLines={1}>{cs.avgCycleLength ? `${cs.avgCycleLength} days*` : '—'}</AppText>
+                </View>
+                <ChevronRight size={16} color={onDark.green[100]} />
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Average period ${cs.avgPeriodLength ? `${cs.avgPeriodLength} days, estimate` : 'unknown'}. Open cycle settings`} onPress={() => router.push('/cycle-settings')} style={({ pressed }) => [styles.glass, narrow && styles.glassSm, pressed && styles.glassPressed]}>
+                <View style={[styles.glassIcon, narrow && styles.glassIconSm]}>
+                  <Droplet size={17} color="#fff" />
+                </View>
+                {narrow ? null : <View style={styles.glassRule} />}
+                <View style={{ flex: 1 }}>
+                  <AppText variant="overline" color={onDark.green[200]} style={{ fontSize: 9 }} numberOfLines={1}>
+                    Avg period
+                  </AppText>
+                  <AppText style={styles.glassValue} numberOfLines={1}>{cs.avgPeriodLength ? `${cs.avgPeriodLength} days*` : '—'}</AppText>
+                </View>
+                <ChevronRight size={16} color={onDark.green[100]} />
+              </Pressable>
             </View>
             <View style={styles.heroActions}>
               <Button label={openPeriod ? 'End period' : 'Log Period'} icon={Plus} variant="rose" style={{ flex: 1.3 }} onPress={() => router.push('/log-period')} />
@@ -359,16 +403,29 @@ export default function CycleTab() {
 const styles = StyleSheet.create({
   basisRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   hero: { borderRadius: 30, padding: 18, overflow: 'hidden', ...shadow.lift },
-  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  dialWrap: { width: 150, height: 150, borderRadius: 75, backgroundColor: colors.surface },
-  dialNum: { fontFamily: font.displayBold, fontSize: 40, lineHeight: 44, letterSpacing: -1, color: colors.text },
-  heroBig: { fontFamily: font.displayBold, fontSize: 28, lineHeight: 34, letterSpacing: -0.6, color: '#fff' },
-  // Light chip on the forest hero in both modes.
-  phaseChip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: onDark.green[100], borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '100%' },
-  phaseDot: { width: 9, height: 9, borderRadius: 5 },
-  heroStats: { flexDirection: 'row', gap: 8, marginTop: 16 },
-  glass: { flex: 1, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9 },
-  glassValue: { fontFamily: font.display, fontSize: 17, lineHeight: 22, color: '#fff', marginTop: 2 },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  heroBig: { fontFamily: font.displayBold, fontSize: 34, lineHeight: 40, letterSpacing: -0.8, color: '#fff' },
+  // Light pill on the forest hero in both modes; opens the current phase sheet.
+  phaseChip: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', backgroundColor: onDark.green[100], borderRadius: 999, paddingLeft: 11, paddingRight: 9, paddingVertical: 7, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  phaseChipText: { fontFamily: font.semibold, fontSize: 13, lineHeight: 17, flexShrink: 1 },
+  phaseDot: { width: 10, height: 10, borderRadius: 5 },
+  legend: { flexDirection: 'row', marginTop: 16, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 4 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 5, minWidth: 0 },
+  legendFlex: { flex: 1 },
+  legendDivider: { borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.14)' },
+  legendGrid: { flexWrap: 'wrap', rowGap: 10, paddingHorizontal: 6 },
+  legendCell: { width: '50%', paddingHorizontal: 8 },
+  legendDot: { width: 11, height: 11, borderRadius: 6, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)' },
+  legendName: { fontFamily: font.semibold, fontSize: 11.5, lineHeight: 15, color: '#fff' },
+  legendDays: { fontFamily: font.regular, fontSize: 10, lineHeight: 13, color: 'rgba(255,255,255,0.72)' },
+  heroStats: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  glass: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 18, paddingLeft: 9, paddingRight: 8, paddingVertical: 9 },
+  glassSm: { gap: 7, paddingLeft: 8, paddingRight: 6 },
+  glassIconSm: { width: 28, height: 28, borderRadius: 14 },
+  glassPressed: { backgroundColor: 'rgba(255,255,255,0.16)', transform: [{ scale: 0.98 }] },
+  glassIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
+  glassRule: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.16)' },
+  glassValue: { fontFamily: font.display, fontSize: 16, lineHeight: 21, color: '#fff', marginTop: 1 },
   heroActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
   phaseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   phaseTile: { width: '47%', flexGrow: 1, borderRadius: 22, padding: 14, gap: 4, borderWidth: 2, borderColor: 'transparent', minHeight: 112 },

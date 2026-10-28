@@ -222,7 +222,8 @@ export default function WorkoutSession() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: palette.green[950] },
+  // overflow hidden: the decorative leaf bleeds past the right edge and must not widen the page
+  root: { flex: 1, backgroundColor: palette.green[950], overflow: 'hidden' },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16 },
   round: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   timerWrap: { alignItems: 'center', marginTop: 22 },
